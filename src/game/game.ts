@@ -1,20 +1,25 @@
-// The Game class: run state, player, damage, pickups, leveling, fx timers.
+// The Game class: run state, player, damage & status effects, pickups,
+// leveling, curses, abilities, sectors, arena, fx timers.
 // Weapon firing lives in weapons.ts, enemy AI + spawning in enemies.ts.
 
 import { Pool } from '../core/pool';
 import { SpatialHash } from '../core/spatial';
 import { Input } from '../core/input';
-import { damp, dist2, rand, TAU, pickWeighted } from '../core/math';
+import { damp, dist2, rand, TAU, pickWeighted, clamp } from '../core/math';
 import { audio } from '../audio/audio';
 import {
   Enemy, Projectile, EnemyBullet, Pickup, Particle, DamageNumber,
   PickupKind, ParticleKind, WeaponState, PlayerStats, CardOffer,
-  GamePhase, WeaponId, PassiveId, EnemyKind, Affix,
+  GamePhase, WeaponId, PassiveId, EnemyKind, Affix, Zone, ZoneKind,
+  TurretState, Worm, CurseDef,
 } from './types';
-import { WEAPONS, PASSIVES, PILOTS, PilotDef, xpForLevel, COLORS, ENEMY_DEFS } from './data';
-import { profile, metaBonuses } from '../meta/save';
-import { fireWeapons, updateProjectiles, updateBlades } from './weapons';
-import { updateEnemies, updateSpawner, updateEnemyBullets } from './enemies';
+import {
+  WEAPONS, PASSIVES, PILOTS, PilotDef, xpForLevel, COLORS, ENEMY_DEFS,
+  CURSES, SECTORS, ACHIEVEMENTS, damageScale,
+} from './data';
+import { profile, metaBonuses, save } from '../meta/save';
+import { fireWeapons, updateProjectiles, updateBlades, updateTurrets } from './weapons';
+import { updateEnemies, updateSpawner, updateEnemyBullets, updateWorms, wormAt, hitWorm } from './enemies';
 
 export interface Beam {
   x: number; y: number; angle: number; len: number; width: number;
@@ -34,13 +39,16 @@ export interface RunStats {
 export interface GameHooks {
   levelUp(offers: CardOffer[]): void;
   chestOpen(result: ChestResult): void;
+  deal(options: CurseDef[]): void;
   gameOver(stats: RunStats): void;
   victory(stats: RunStats): void;
   bossWarn(name: string): void;
   bossBar(name: string, frac: number, visible: boolean): void;
   evolved(name: string): void;
   overdrive(): void;
-  hud(): void; // light per-frame HUD refresh
+  sector(name: string, sub: string): void;
+  achievement(name: string, reward: number): void;
+  hud(): void;
 }
 
 export interface ChestResult {
@@ -58,8 +66,9 @@ function makeEnemy(): Enemy {
     x: 0, y: 0, vx: 0, vy: 0, radius: 10, hp: 1, maxHp: 1, speed: 0, touchDamage: 0,
     kind: EnemyKind.Chaser, elite: false, affix: Affix.None, xp: 1,
     flashTimer: 0, spawnTimer: 0, hitCd: 0, grazeCd: 0, kbx: 0, kby: 0, kbResist: 0,
-    slowTimer: 0, burnTimer: 0, burnDps: 0, bladeCd: 0, dashHitCd: 0,
-    seed: 0, aiState: 0, aiTimer: 0, aimX: 0, aimY: 0, shootTimer: 0, angle: 0,
+    slowTimer: 0, burnTimer: 0, burnDps: 0, chill: 0, frozenTimer: 0, shockTimer: 0,
+    acidTimer: 0, acidDps: 0, bladeCd: 0, dashHitCd: 0, zoneCd: 0,
+    seed: 0, flockId: -1, aiState: 0, aiTimer: 0, aimX: 0, aimY: 0, shootTimer: 0, angle: 0,
   };
 }
 
@@ -68,8 +77,8 @@ export class Game {
   enemies = new Pool<Enemy>(makeEnemy, 320);
   projectiles = new Pool<Projectile>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, radius: 4, damage: 0, pierce: 0, life: 0, kind: 0,
-    seed: 0, homing: 0, targetIdx: -1, hitCd: 0, lastHit: -1, knockback: 0,
-  }), 260);
+    seed: 0, homing: 0, targetIdx: -1, hitCd: 0, phase: 0, knockback: 0,
+  }), 300);
   enemyBullets = new Pool<EnemyBullet>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, radius: 6, damage: 0, life: 0, grazed: false, hue: 0,
   }), 400);
@@ -85,23 +94,31 @@ export class Game {
 
   beams: Beam[] = [];
   bolts: Bolt[] = [];
+  zones: Zone[] = [];
+  turrets: TurretState[] = [];
+  worms: Worm[] = [];
 
   // player
   px = 0; py = 0;
-  moveDirX = 0; moveDirY = -1; // last non-zero move dir
+  moveDirX = 0; moveDirY = -1;
   playerRadius = PLAYER_RADIUS;
   hp = 100;
   stats!: PlayerStats;
   pilot: PilotDef = PILOTS[0];
   invuln = 0;
+  reflectTimer = 0; // Aegis
   dashCharges = 2;
   dashRecharge = 0;
   dashTimer = 0;
   dashDirX = 0; dashDirY = -1;
-  overdrive = 0; // 0..100 charge
-  overdriveTimer = 0; // active seconds remaining
+  overdrive = 0;
+  overdriveTimer = 0;
   reviveAvailable = false;
   regenAcc = 0;
+  abilityTimer = 0; // cooldown remaining
+  bulletTime = 0; // enemy-slow seconds remaining
+  phantomStrikes = 0;
+  phantomTimer = 0;
 
   // run progress
   time = 0;
@@ -120,24 +137,39 @@ export class Game {
   gemStreak = 0;
   gemStreakTimer = 0;
   rerollsLeft = 1;
+  banishesLeft = 1;
   endless = false;
   god = false;
+  curses: string[] = [];
+  runGraze = 0;
+  runOverdrives = 0;
+  runDashKills = 0;
   private scoreBanked = 0;
   private pickedBanked = 0;
+  private achTimer = 4;
 
   weapons: WeaponState[] = [];
   passives = new Map<PassiveId, number>();
+  banishedW = new Set<WeaponId>();
+  banishedP = new Set<PassiveId>();
 
-  // director state (driven by enemies.ts)
+  // director state
   waveIdx = 0;
   spawnTimer = 1;
   eliteTimer = 55;
   eventIdx = 0;
   bossIdx = 0;
-  bossSlot = -1; // index into enemies pool while boss alive (revalidated each frame)
   bossWarnAt = -1;
   endlessCycle = 0;
   endlessBossTimer = 0;
+  hazardTimer = 10;
+  sectorIdx = 0;
+
+  // arena
+  arenaActive = false;
+  arenaX = 0;
+  arenaY = 0;
+  arenaR = 0;
 
   // fx
   camX = 0; camY = 0;
@@ -145,7 +177,7 @@ export class Game {
   timeScale = 1;
   hitStop = 0;
   screenFlash = 0;
-  viewR = 520; // half-diagonal of view, set by renderer
+  viewR = 520;
 
   input: Input;
   hooks: GameHooks;
@@ -157,44 +189,68 @@ export class Game {
     this.pilot = pilot;
     this.god = !!opts.god;
     this.time = opts.startTime ?? 0;
-    this.rerollsLeft = 1 + metaBonuses().rerolls;
-    this.reviveAvailable = metaBonuses().revive;
-    this.addWeapon(pilot.startWeapon);
+    const m = metaBonuses();
+    this.rerollsLeft = 1 + m.rerolls;
+    this.banishesLeft = 1 + m.banishes;
+    this.reviveAvailable = m.revive;
+    if (pilot.ability === 'anomaly') {
+      // GLITCH: two random distinct weapons
+      const a = (Math.random() * WEAPONS.length) | 0;
+      let b = (Math.random() * WEAPONS.length) | 0;
+      while (b === a) b = (Math.random() * WEAPONS.length) | 0;
+      this.addWeapon(WEAPONS[a].id);
+      this.addWeapon(WEAPONS[b].id);
+    } else {
+      this.addWeapon(pilot.startWeapon);
+    }
+    if (m.startLevel2) this.weapons[0].level = 2;
     this.recomputeStats();
     this.hp = this.stats.maxHp;
     this.dashCharges = this.stats.dashCharges;
-    // fast-forward director past skipped time (testing)
+    this.sectorIdx = this.currentSectorIdx();
     if (this.time > 0) {
       this.eliteTimer = 20;
       while (this.bossIdx < 3 && this.time > [180, 390, 600][this.bossIdx]) this.bossIdx++;
+      while (this.eventIdx < 10 && this.time > [95, 140, 245, 280, 330, 360, 460, 490, 520, 575][this.eventIdx]) this.eventIdx++;
     }
   }
 
-  // ------------------------------------------------------------ stats
+  // ------------------------------------------------------------ stats & curses
+
+  hasCurse(id: string): boolean {
+    return this.curses.includes(id);
+  }
 
   recomputeStats(): void {
     const m = metaBonuses();
     const p = this.pilot;
     const lv = (id: PassiveId) => this.passives.get(id) ?? 0;
+    const c = (id: string) => this.hasCurse(id);
     const prevMax = this.stats?.maxHp ?? 0;
+    let hpMult = p.hpMult * (1 + 0.18 * lv(PassiveId.Vitality));
+    if (c('overcharge')) hpMult *= 0.75;
+    if (c('haste')) hpMult *= 0.8;
     this.stats = {
-      maxHp: Math.round((100 + m.hp) * p.hpMult * (1 + 0.18 * lv(PassiveId.Vitality))),
-      regen: p.regen + 0.8 * lv(PassiveId.Reactor),
-      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)),
-      magnet: 118 * (1 + m.magnet) * (1 + 0.25 * lv(PassiveId.Magnet)),
+      maxHp: Math.round((100 + m.hp) * hpMult),
+      regen: c('berserk') ? 0 : p.regen + 0.8 * lv(PassiveId.Reactor),
+      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1),
+      magnet: 118 * (1 + 0.25 * lv(PassiveId.Magnet)) * (c('greed') ? 0.65 : 1),
       armor: p.armor + lv(PassiveId.Plating),
-      damageMult: p.dmgMult * (1 + m.dmg) * (1 + 0.09 * lv(PassiveId.Power)),
-      fireRateMult: 1 / ((1 + m.fireRate) * (1 + 0.08 * lv(PassiveId.Overclock))),
-      areaMult: 1 + 0.12 * lv(PassiveId.Amplifier),
-      projSpeedMult: 1,
-      critChance: 0.05 + 0.04 * lv(PassiveId.Lucky),
+      damageMult: p.dmgMult * (1 + m.dmg) * (1 + 0.09 * lv(PassiveId.Power)) * (c('overcharge') ? 1.35 : 1),
+      fireRateMult: 1 / ((1 + m.fireRate) * (1 + 0.08 * lv(PassiveId.Overclock)) * (c('berserk') ? 1.25 : 1)),
+      areaMult: (1 + 0.12 * lv(PassiveId.Amplifier)) * (c('singularity') ? 1.4 : 1),
+      statusMult: 1 + 0.15 * lv(PassiveId.Catalyst),
+      critChance: 0.05 + 0.04 * lv(PassiveId.Lucky) + (c('glass') ? 0.25 : 0),
       critMult: 2,
-      luck: 1 + 0.15 * lv(PassiveId.Lucky),
+      luck: (1 + 0.15 * lv(PassiveId.Lucky)) * (p.ability === 'anomaly' ? 1.2 : 1),
       xpMult: 1 + m.xp,
+      gemMult: c('greed') ? 2 : 1,
       shardMult: 1 + m.shards,
-      dashCharges: p.dashCharges,
+      damageTakenMult: c('glass') ? 1.25 : 1,
+      dashCharges: p.dashCharges + (c('haste') ? 1 : 0),
       dashCooldown: 2.6 * p.dashCooldownMult,
       dashDamageMult: p.dashDamageMult,
+      abilityCooldown: p.abilityCd,
     };
     if (prevMax > 0 && this.stats.maxHp > prevMax) this.hp += this.stats.maxHp - prevMax;
     this.hp = Math.min(this.hp, this.stats.maxHp);
@@ -204,7 +260,6 @@ export class Game {
     return this.overdriveTimer > 0;
   }
 
-  /** fire-rate multiplier including overdrive (lower = faster). */
   cdMult(): number {
     return this.stats.fireRateMult * (this.overdriveActive ? 0.72 : 1);
   }
@@ -213,11 +268,21 @@ export class Game {
     return this.stats.damageMult * (this.overdriveActive ? 1.18 : 1);
   }
 
+  /** dt multiplier applied to hostile things (Bullet Time). */
+  enemyDt(dt: number): number {
+    return this.bulletTime > 0 ? dt * 0.35 : dt;
+  }
+
+  currentSectorIdx(): number {
+    let idx = 0;
+    for (let i = 0; i < SECTORS.length; i++) if (this.time >= SECTORS[i].t) idx = i;
+    return idx;
+  }
+
   // ------------------------------------------------------------ main update
 
   update(rawDt: number): void {
     if (this.phase !== 'run') return;
-    // hit-stop envelope
     if (this.hitStop > 0) {
       this.hitStop -= rawDt;
       this.timeScale = 0.05;
@@ -227,23 +292,45 @@ export class Game {
     const dt = rawDt * this.timeScale;
     this.time += dt;
 
+    // sector transition
+    const sec = this.currentSectorIdx();
+    if (sec !== this.sectorIdx) {
+      this.sectorIdx = sec;
+      this.hooks.sector(SECTORS[sec].name, SECTORS[sec].sub);
+      this.addTrauma(0.3);
+      this.screenFlash = Math.max(this.screenFlash, 0.5);
+      audio.chest();
+      this.haptic(30);
+    }
+
     this.updateTimers(dt, rawDt);
     this.updatePlayer(dt);
+    this.updateAbility(dt);
     fireWeapons(this, dt);
-    updateEnemies(this, dt);
+    updateTurrets(this, dt);
+    updateEnemies(this, this.enemyDt(dt));
+    updateWorms(this, this.enemyDt(dt));
     this.rebuildGrid();
     updateBlades(this, dt);
     updateProjectiles(this, dt);
-    updateEnemyBullets(this, dt);
+    updateEnemyBullets(this, this.enemyDt(dt));
     this.contactAndGraze(dt);
+    this.updateZones(dt);
     this.updatePickups(dt);
     updateSpawner(this, dt);
+    this.updateHazards(dt);
     this.updateParticles(dt);
     this.updateCamera(dt);
 
-    audio.intensity = this.overdriveActive || this.bossSlot >= 0 ? 3 : this.time > 150 ? 2 : 1;
+    audio.intensity = this.overdriveActive || this.arenaActive ? 3 : this.time > 150 ? 2 : 1;
 
-    // deferred level-ups (never interrupt a chest/boss-death slowmo mid-frame)
+    // periodic achievement sweep (cheap)
+    this.achTimer -= dt;
+    if (this.achTimer <= 0) {
+      this.achTimer = 5;
+      this.checkAchievements();
+    }
+
     if (this.pendingLevelUps > 0) {
       this.pendingLevelUps--;
       this.openLevelUp();
@@ -253,6 +340,9 @@ export class Game {
 
   private updateTimers(dt: number, rawDt: number): void {
     this.invuln = Math.max(0, this.invuln - dt);
+    this.reflectTimer = Math.max(0, this.reflectTimer - dt);
+    this.bulletTime = Math.max(0, this.bulletTime - dt);
+    this.abilityTimer = Math.max(0, this.abilityTimer - dt);
     this.screenFlash = Math.max(0, this.screenFlash - rawDt * 3);
     this.trauma = Math.max(0, this.trauma - rawDt * 1.7);
     if (this.comboTimer > 0) {
@@ -267,7 +357,6 @@ export class Game {
       this.overdriveTimer -= dt;
       if (this.overdriveTimer <= 0) this.overdrive = 0;
     }
-    // dash recharge
     if (this.dashCharges < this.stats.dashCharges) {
       this.dashRecharge -= dt;
       if (this.dashRecharge <= 0) {
@@ -275,7 +364,6 @@ export class Game {
         this.dashRecharge = this.stats.dashCooldown;
       }
     }
-    // regen
     this.regenAcc += this.stats.regen * dt;
     if (this.regenAcc >= 1) {
       const heal = Math.floor(this.regenAcc);
@@ -294,7 +382,6 @@ export class Game {
       this.dashTimer -= dt;
       this.px += this.dashDirX * DASH_SPEED * dt;
       this.py += this.dashDirY * DASH_SPEED * dt;
-      // afterimage
       const g = this.particles.spawnOrRecycle();
       g.kind = ParticleKind.Ghost; g.x = this.px; g.y = this.py;
       g.vx = 0; g.vy = 0; g.life = 0.28; g.maxLife = 0.28; g.size = this.playerRadius;
@@ -310,6 +397,18 @@ export class Game {
       this.moveDirX = inp.moveX / m;
       this.moveDirY = inp.moveY / m;
     }
+
+    // arena walls
+    if (this.arenaActive) {
+      const dx = this.px - this.arenaX;
+      const dy = this.py - this.arenaY;
+      const d = Math.hypot(dx, dy);
+      const max = this.arenaR - this.playerRadius;
+      if (d > max) {
+        this.px = this.arenaX + (dx / d) * max;
+        this.py = this.arenaY + (dy / d) * max;
+      }
+    }
   }
 
   private tryDash(): void {
@@ -318,7 +417,6 @@ export class Game {
     this.dashCharges--;
     this.dashTimer = DASH_TIME;
     this.invuln = Math.max(this.invuln, 0.34);
-    // dash in move direction; when idle, dash away from nearest enemy
     let dx = this.moveDirX;
     let dy = this.moveDirY;
     if (this.input.moveX === 0 && this.input.moveY === 0) {
@@ -353,9 +451,127 @@ export class Game {
         e.dashHitCd = 0.5;
         const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300 });
         if (killed) {
+          this.runDashKills++;
           this.chargeOverdrive(2);
-          // dash kills accelerate recharge
           this.dashRecharge = Math.max(0.2, this.dashRecharge - 0.7);
+        }
+      }
+    }
+    // dash carves through serpents too
+    const wh = wormAt(this, this.px, this.py, 30);
+    if (wh && wh.worm.hitCd < 0.4) {
+      wh.worm.hitCd = 0.75;
+      hitWorm(this, wh.worm, wh.segIdx, dmg);
+    }
+  }
+
+  // ------------------------------------------------------------ pilot ability
+
+  useAbility(): void {
+    if (this.phase !== 'run' || this.abilityTimer > 0) return;
+    this.abilityTimer = this.stats.abilityCooldown;
+    this.haptic(30);
+    switch (this.pilot.ability) {
+      case 'overload': {
+        const r = 330 * this.stats.areaMult;
+        const near = this.grid.query(this.px, this.py, r + 40);
+        for (let i = near.length - 1; i >= 0; i--) {
+          const e = near[i];
+          if (e.spawnTimer > 0) continue;
+          const d2 = dist2(this.px, this.py, e.x, e.y);
+          if (d2 < (r + e.radius) ** 2) {
+            const d = Math.sqrt(d2) || 1;
+            this.dealDamage(e, 160 * this.dmgMult(), {
+              knockX: ((e.x - this.px) / d) * 520,
+              knockY: ((e.y - this.py) / d) * 520,
+            });
+          }
+        }
+        const ring = this.particles.spawnOrRecycle();
+        ring.kind = ParticleKind.Ring; ring.x = this.px; ring.y = this.py; ring.vx = 0; ring.vy = 0;
+        ring.life = 0.55; ring.maxLife = 0.55; ring.size = r; ring.color = 0;
+        this.screenFlash = Math.max(this.screenFlash, 0.6);
+        this.addTrauma(0.5);
+        audio.bigKill();
+        break;
+      }
+      case 'bullettime': {
+        this.bulletTime = 3.5;
+        this.screenFlash = Math.max(this.screenFlash, 0.3);
+        audio.overdrive();
+        break;
+      }
+      case 'aegis': {
+        this.invuln = Math.max(this.invuln, 3);
+        this.reflectTimer = 3;
+        this.screenFlash = Math.max(this.screenFlash, 0.3);
+        audio.levelup();
+        break;
+      }
+      case 'phantom': {
+        this.phantomStrikes = 3;
+        this.phantomTimer = 0;
+        this.invuln = Math.max(this.invuln, 1);
+        audio.dash();
+        break;
+      }
+      case 'anomaly': {
+        const roll = (Math.random() * 4) | 0;
+        if (roll === 0) {
+          this.overdrive = 100;
+          this.overdriveTimer = 7;
+          this.runOverdrives++;
+          audio.overdrive();
+          this.hooks.overdrive();
+        } else if (roll === 1) {
+          for (let i = 0; i < this.enemies.count; i++) {
+            const e = this.enemies.items[i];
+            if (e.kind < EnemyKind.BossWarden) { e.frozenTimer = 2.5; e.chill = 3; }
+          }
+          audio.shoot(2);
+          this.screenFlash = Math.max(this.screenFlash, 0.5);
+        } else if (roll === 2) {
+          this.nukeEffect(this.viewR * 0.7);
+          audio.bigKill();
+        } else {
+          this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.maxHp * 0.5);
+          for (let i = 0; i < this.pickups.count; i++) this.pickups.items[i].magnetized = true;
+          audio.chest();
+        }
+        break;
+      }
+    }
+  }
+
+  private updateAbility(dt: number): void {
+    if (this.phantomStrikes > 0) {
+      this.phantomTimer -= dt;
+      if (this.phantomTimer <= 0) {
+        this.phantomTimer = 0.13;
+        this.phantomStrikes--;
+        const target = this.nearestEnemy(this.px, this.py, 450);
+        if (target) {
+          // ghost at origin, teleport past target
+          const g = this.particles.spawnOrRecycle();
+          g.kind = ParticleKind.Ghost; g.x = this.px; g.y = this.py; g.vx = 0; g.vy = 0;
+          g.life = 0.3; g.maxLife = 0.3; g.size = this.playerRadius;
+          g.rot = Math.atan2(target.y - this.py, target.x - this.px); g.color = 0;
+          const a = Math.atan2(target.y - this.py, target.x - this.px);
+          this.px = target.x + Math.cos(a) * 30;
+          this.py = target.y + Math.sin(a) * 30;
+          this.invuln = Math.max(this.invuln, 0.4);
+          const near = this.grid.query(target.x, target.y, 90);
+          for (let i = near.length - 1; i >= 0; i--) {
+            const e = near[i];
+            if (e.spawnTimer > 0) continue;
+            if (dist2(target.x, target.y, e.x, e.y) < (80 + e.radius) ** 2) {
+              this.dealDamage(e, 110 * this.dmgMult(), {});
+            }
+          }
+          this.addTrauma(0.2);
+          audio.dash();
+        } else {
+          this.phantomStrikes = 0;
         }
       }
     }
@@ -381,9 +597,43 @@ export class Game {
     for (let i = 0; i < this.enemies.count; i++) this.grid.insert(this.enemies.items[i]);
   }
 
+  // ------------------------------------------------------------ status effects
+
+  applyChill(e: Enemy, amount: number): void {
+    if (e.kind >= EnemyKind.BossWarden) {
+      e.slowTimer = Math.max(e.slowTimer, 0.6); // bosses resist freeze, just slow
+      return;
+    }
+    if (e.frozenTimer > 0) return;
+    e.chill += amount * this.stats.statusMult;
+    e.slowTimer = Math.max(e.slowTimer, 0.8);
+    if (e.chill >= 3) {
+      e.chill = 3;
+      e.frozenTimer = clamp(1.3 * this.stats.statusMult, 0, 2.4);
+      profile.records.totalFrozen++;
+      const p = this.particles.spawnOrRecycle();
+      p.kind = ParticleKind.Ring; p.x = e.x; p.y = e.y; p.vx = 0; p.vy = 0;
+      p.life = 0.25; p.maxLife = 0.25; p.size = e.radius * 1.6; p.color = 7;
+    }
+  }
+
+  applyBurn(e: Enemy, dps: number, dur: number): void {
+    e.burnTimer = Math.max(e.burnTimer, dur * this.stats.statusMult);
+    e.burnDps = Math.max(e.burnDps, dps * this.stats.statusMult);
+  }
+
+  applyShock(e: Enemy, dur: number): void {
+    if (e.kind >= EnemyKind.BossWarden) return;
+    e.shockTimer = Math.max(e.shockTimer, dur * this.stats.statusMult);
+  }
+
+  applyAcid(e: Enemy, dps: number, dur: number): void {
+    e.acidTimer = Math.max(e.acidTimer, dur * this.stats.statusMult);
+    e.acidDps = Math.max(e.acidDps, dps * this.stats.statusMult);
+  }
+
   // ------------------------------------------------------------ damage
 
-  /** Apply damage to an enemy. Returns true if this killed it. */
   dealDamage(
     e: Enemy,
     amount: number,
@@ -396,6 +646,22 @@ export class Game {
       dmg *= this.stats.critMult;
     }
     if (e.affix === Affix.Armored) dmg *= 0.6;
+    if (e.shockTimer > 0) dmg *= 1.2;
+    // SHATTER: hitting a frozen enemy breaks the ice for bonus damage
+    if (e.frozenTimer > 0) {
+      dmg *= 1.75;
+      e.frozenTimer = 0;
+      e.chill = 0;
+      for (let i = 0; i < 6; i++) {
+        const p = this.particles.spawnOrRecycle();
+        p.kind = ParticleKind.Shard; p.x = e.x; p.y = e.y;
+        const a = Math.random() * TAU;
+        p.vx = Math.cos(a) * rand(80, 260); p.vy = Math.sin(a) * rand(80, 260);
+        p.life = 0.4; p.maxLife = 0.4; p.size = rand(2, 4); p.color = 7;
+        p.rot = Math.random() * TAU; p.vrot = rand(-9, 9);
+      }
+      audio.kill(10);
+    }
     e.hp -= dmg;
     e.flashTimer = 0.08;
     if (opts.knockX || opts.knockY) {
@@ -417,7 +683,6 @@ export class Game {
   }
 
   killEnemy(e: Enemy): void {
-    // find slot & release
     const idx = this.enemies.items.indexOf(e);
     if (idx < 0 || idx >= this.enemies.count) return;
 
@@ -428,8 +693,10 @@ export class Game {
     this.comboTimer = 3;
     this.chargeOverdrive(0.3);
     this.score += (e.elite ? 150 : 10) * (1 + Math.min(this.combo, 100) * 0.01);
+    if (this.overdriveActive && this.hasCurse('vampire')) {
+      this.hp = Math.min(this.stats.maxHp, this.hp + 2);
+    }
 
-    // fx scale with enemy size
     const big = e.elite || e.kind >= EnemyKind.BossWarden || e.kind === EnemyKind.Tank;
     this.spawnDeathFx(e, big);
     if (big) {
@@ -447,27 +714,50 @@ export class Game {
       this.onBossKilled(e);
     }
     if (e.kind === EnemyKind.Splitter) {
-      // burst into minis (queued via enemies.ts helper — inline here)
       for (let k = 0; k < 3; k++) {
         const m = this.spawnEnemyAt(EnemyKind.Mini, e.x + rand(-18, 18), e.y + rand(-18, 18), 1);
         if (m) m.spawnTimer = 0.25;
       }
     }
     if (e.affix === Affix.Volatile) {
-      // bullet ring on death
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * TAU;
         this.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 150, Math.sin(a) * 150, 8, 300);
       }
     }
+    // acid spread (Plague Vats): melted enemies burst into a small pool
+    if (e.acidTimer > 0) {
+      const acid = this.weapons.find(w => w.id === WeaponId.Acid);
+      if (acid?.evolved) {
+        this.spawnZone(e.x, e.y, 45 * this.stats.areaMult, 2.2, e.acidDps, false, ZoneKind.Acid, 0);
+      }
+    }
+    // Volatile Rounds curse: friendly explosion (that can also singe you)
+    if (this.hasCurse('volatile') && e.kind < EnemyKind.BossWarden) {
+      const r = 55;
+      const near = this.grid.query(e.x, e.y, r + 24);
+      for (let q = near.length - 1; q >= 0; q--) {
+        const o = near[q];
+        if (o === e || o.spawnTimer > 0 || o.hp <= 0) continue;
+        if (dist2(e.x, e.y, o.x, o.y) < (r + o.radius) ** 2) {
+          this.dealDamage(o, 18 * this.dmgMult(), { canCrit: false, showNumber: false });
+        }
+      }
+      if (dist2(e.x, e.y, this.px, this.py) < (r + this.playerRadius) ** 2) {
+        this.hurtPlayer(5);
+      }
+      const orb = this.particles.spawnOrRecycle();
+      orb.kind = ParticleKind.Orb; orb.x = e.x; orb.y = e.y; orb.vx = 0; orb.vy = 0;
+      orb.life = 0.25; orb.maxLife = 0.25; orb.size = r * 0.8; orb.color = 4;
+    }
 
     this.enemies.releaseAt(idx);
-    // fix boss slot cache
-    if (this.bossSlot === idx || this.bossSlot === this.enemies.count) this.bossSlot = -1;
   }
 
   private onBossKilled(e: Enemy): void {
     this.bossKills++;
+    const bi = e.kind - EnemyKind.BossWarden;
+    if (bi >= 0 && bi < 3) profile.records.bossKills[bi]++;
     this.score += 1500;
     this.hitStop = Math.max(this.hitStop, 0.3);
     this.addTrauma(0.7);
@@ -475,14 +765,42 @@ export class Game {
     this.haptic(60);
     audio.bossDown();
     this.hooks.bossBar('', 0, false);
-    this.bossSlot = -1;
-    // loot shower
+    this.arenaActive = false;
     for (let i = 0; i < 6; i++) this.spawnPickup(PickupKind.Shard, e.x + rand(-50, 50), e.y + rand(-50, 50), 12);
     this.spawnPickup(PickupKind.Chest, e.x, e.y, 1);
     this.spawnPickup(PickupKind.Health, e.x + rand(-60, 60), e.y + rand(-60, 60), 40);
     if (e.kind === EnemyKind.BossOmega && !this.endless) {
       this.finishRun(true);
+      return;
     }
+    // Cursed Tech offer after every other boss kill
+    this.offerDeal();
+  }
+
+  private offerDeal(): void {
+    const available = CURSES.filter(c => !this.curses.includes(c.id));
+    if (available.length < 2) return;
+    const a = available[(Math.random() * available.length) | 0];
+    let b = available[(Math.random() * available.length) | 0];
+    while (b === a) b = available[(Math.random() * available.length) | 0];
+    this.phase = 'deal';
+    audio.bossWarning();
+    this.hooks.deal([a, b]);
+  }
+
+  acceptDeal(id: string): void {
+    this.curses.push(id);
+    profile.records.cursesTaken++;
+    this.recomputeStats();
+    this.hp = Math.min(this.hp, this.stats.maxHp);
+    this.screenFlash = Math.max(this.screenFlash, 0.5);
+    audio.evolve();
+    this.phase = 'run';
+  }
+
+  refuseDeal(): void {
+    audio.ui();
+    this.phase = 'run';
   }
 
   spawnDeathFx(e: Enemy, big: boolean): void {
@@ -509,8 +827,6 @@ export class Game {
   }
 
   private dropLoot(e: Enemy): void {
-    // XP gems, with merging pressure near pool cap.
-    // Gem value drifts upward over the run so leveling keeps its rhythm.
     let value = e.xp;
     if ((e.kind === EnemyKind.Swarm || e.kind === EnemyKind.Mini) && Math.random() < 0.35) value = 0;
     if (value > 0) this.spawnGem(e.x, e.y, Math.round(value * (1 + this.time / 300)));
@@ -518,7 +834,6 @@ export class Game {
       this.spawnPickup(PickupKind.Chest, e.x, e.y, 1);
       for (let i = 0; i < 3; i++) this.spawnPickup(PickupKind.Shard, e.x + rand(-40, 40), e.y + rand(-40, 40), 8);
     }
-    // rare consumables
     const r = Math.random();
     if (r < 0.006) this.spawnPickup(PickupKind.Magnet, e.x, e.y, 1);
     else if (r < 0.012) this.spawnPickup(PickupKind.Health, e.x, e.y, 25);
@@ -527,7 +842,6 @@ export class Game {
   }
 
   spawnGem(x: number, y: number, value: number): void {
-    // merge into a nearby gem when the pool is crowded
     if (this.pickups.count > 360) {
       let best: Pickup | null = null;
       let bestD = 250 * 250;
@@ -568,7 +882,7 @@ export class Game {
     e.x = x; e.y = y; e.vx = 0; e.vy = 0;
     e.radius = def.radius;
     e.maxHp = e.hp = def.hp * hpMult;
-    e.speed = def.speed * rand(0.9, 1.1);
+    e.speed = def.speed * rand(0.9, 1.1) * (this.hasCurse('singularity') ? 1.1 : 1);
     e.touchDamage = def.damage;
     e.xp = def.xp;
     e.kbResist = def.kbResist;
@@ -576,10 +890,88 @@ export class Game {
     e.affix = Affix.None;
     e.flashTimer = 0; e.spawnTimer = 0.6; e.hitCd = 0; e.grazeCd = 0;
     e.kbx = 0; e.kby = 0; e.slowTimer = 0; e.burnTimer = 0; e.burnDps = 0;
-    e.bladeCd = 0; e.dashHitCd = 0;
+    e.chill = 0; e.frozenTimer = 0; e.shockTimer = 0; e.acidTimer = 0; e.acidDps = 0;
+    e.bladeCd = 0; e.dashHitCd = 0; e.zoneCd = 0;
     e.seed = Math.random() * TAU;
+    e.flockId = -1;
     e.aiState = 0; e.aiTimer = rand(0, 1); e.shootTimer = rand(1, 3); e.angle = 0;
     return e;
+  }
+
+  // ------------------------------------------------------------ zones
+
+  spawnZone(x: number, y: number, r: number, life: number, dps: number, hostile: boolean, kind: ZoneKind, telegraph: number): void {
+    if (this.zones.length > 40) this.zones.shift();
+    this.zones.push({ x, y, r, life: life + telegraph, maxLife: life, dps, hostile, kind, telegraph, seed: Math.random() * TAU });
+  }
+
+  private updateZones(dt: number): void {
+    for (let i = this.zones.length - 1; i >= 0; i--) {
+      const z = this.zones[i];
+      z.life -= dt;
+      if (z.life <= 0) {
+        this.zones.splice(i, 1);
+        continue;
+      }
+      if (z.telegraph > 0) {
+        z.telegraph -= dt;
+        continue; // warning phase, no damage yet
+      }
+      if (z.hostile) {
+        if (dist2(this.px, this.py, z.x, z.y) < (z.r + this.playerRadius * 0.4) ** 2) {
+          // burning ground ticks — bypass invuln i-frames lightly but respect dash
+          if (this.dashTimer <= 0 && !this.god) {
+            this.zoneHurtAcc += z.dps * dt;
+            if (this.zoneHurtAcc >= 1) {
+              const dmg = Math.floor(this.zoneHurtAcc);
+              this.zoneHurtAcc -= dmg;
+              this.hp -= dmg * this.stats.damageTakenMult;
+              this.screenFlash = Math.max(this.screenFlash, 0.12);
+              if (this.hp <= 0) this.handleDeath();
+            }
+          }
+        }
+      } else {
+        // friendly pool: tick enemies inside
+        const near = this.grid.query(z.x, z.y, z.r + 30);
+        for (let q = near.length - 1; q >= 0; q--) {
+          const e = near[q];
+          if (e.spawnTimer > 0 || e.hp <= 0) continue;
+          e.zoneCd -= dt;
+          if (e.zoneCd > 0) continue;
+          if (dist2(e.x, e.y, z.x, z.y) < (z.r + e.radius) ** 2) {
+            e.zoneCd = 0.4;
+            this.applyAcid(e, z.dps * 0.5, 2);
+            this.dealDamage(e, z.dps * 0.4, { canCrit: false, showNumber: false });
+            if (z.kind === ZoneKind.Void) {
+              const d = Math.hypot(e.x - z.x, e.y - z.y) || 1;
+              e.kbx -= ((e.x - z.x) / d) * 260 * (1 - e.kbResist);
+              e.kby -= ((e.y - z.y) / d) * 260 * (1 - e.kbResist);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private zoneHurtAcc = 0;
+
+  private updateHazards(dt: number): void {
+    const sector = SECTORS[this.sectorIdx];
+    if (sector.hazard === 'none' || this.arenaActive) return;
+    this.hazardTimer -= dt;
+    if (this.hazardTimer <= 0) {
+      this.hazardTimer = rand(6, 10);
+      const a = Math.random() * TAU;
+      const d = rand(60, 240);
+      const x = this.px + Math.cos(a) * d + this.moveDirX * 120;
+      const y = this.py + Math.sin(a) * d + this.moveDirY * 120;
+      if (sector.hazard === 'acid') {
+        this.spawnZone(x, y, rand(70, 110), 4, 12 * damageScale(this.time), true, ZoneKind.Acid, 1.1);
+      } else {
+        this.spawnZone(x, y, rand(60, 95), 2.6, 20 * damageScale(this.time), true, ZoneKind.Fire, 1.0);
+      }
+    }
   }
 
   // ------------------------------------------------------------ player hit & graze
@@ -595,14 +987,18 @@ export class Game {
       if (d < e.radius + this.playerRadius) {
         if (e.hitCd <= 0) {
           e.hitCd = 0.75;
-          this.hurtPlayer(e.touchDamage);
-          // push enemy back a touch
+          if (this.reflectTimer > 0) {
+            this.dealDamage(e, 60 * this.dmgMult(), { canCrit: false });
+          } else {
+            this.hurtPlayer(e.touchDamage);
+          }
           const inv = 1 / (d || 1);
           e.kbx += (e.x - this.px) * inv * 180 * (1 - e.kbResist);
           e.kby += (e.y - this.py) * inv * 180 * (1 - e.kbResist);
         }
       } else if (d < e.radius + GRAZE_RADIUS && e.grazeCd <= 0) {
         e.grazeCd = 0.6;
+        this.runGraze++;
         this.chargeOverdrive(1.4);
         const p = this.particles.spawnOrRecycle();
         p.kind = ParticleKind.Spark;
@@ -615,7 +1011,7 @@ export class Game {
 
   hurtPlayer(raw: number): void {
     if (this.invuln > 0 || this.dashTimer > 0 || this.god) return;
-    const dmg = Math.max(1, Math.round(raw - this.stats.armor));
+    const dmg = Math.max(1, Math.round((raw - this.stats.armor) * this.stats.damageTakenMult));
     this.hp -= dmg;
     this.invuln = 0.8;
     this.combo = Math.floor(this.combo / 2);
@@ -625,19 +1021,21 @@ export class Game {
     this.hitStop = Math.max(this.hitStop, 0.05);
     this.haptic(40);
     audio.hurt();
-    if (this.hp <= 0) {
-      if (this.reviveAvailable) {
-        this.reviveAvailable = false;
-        this.hp = Math.round(this.stats.maxHp * 0.5);
-        this.invuln = 2.2;
-        this.screenFlash = 1;
-        this.nukeEffect(420);
-        audio.levelup();
-        return;
-      }
-      this.hp = 0;
-      this.finishRun(false);
+    if (this.hp <= 0) this.handleDeath();
+  }
+
+  private handleDeath(): void {
+    if (this.reviveAvailable) {
+      this.reviveAvailable = false;
+      this.hp = Math.round(this.stats.maxHp * 0.5);
+      this.invuln = 2.2;
+      this.screenFlash = 1;
+      this.nukeEffect(420);
+      audio.levelup();
+      return;
     }
+    this.hp = 0;
+    this.finishRun(false);
   }
 
   nukeEffect(radius: number): void {
@@ -659,10 +1057,11 @@ export class Game {
 
   chargeOverdrive(amount: number): void {
     if (this.overdriveActive) return;
-    this.overdrive += amount;
+    this.overdrive += amount * (this.hasCurse('vampire') ? 0.7 : 1);
     if (this.overdrive >= 100) {
       this.overdrive = 100;
       this.overdriveTimer = 7;
+      this.runOverdrives++;
       this.screenFlash = Math.max(this.screenFlash, 0.4);
       this.addTrauma(0.3);
       this.haptic(30);
@@ -681,7 +1080,6 @@ export class Game {
         p.life -= dt;
         if (p.life <= 0) { this.pickups.releaseAt(i); continue; }
       }
-      // drift friction
       p.vx *= 1 - Math.min(1, dt * 4);
       p.vy *= 1 - Math.min(1, dt * 4);
       const dx = this.px - p.x;
@@ -706,7 +1104,7 @@ export class Game {
   private collect(p: Pickup): void {
     switch (p.kind) {
       case PickupKind.Gem: {
-        this.gainXp(p.value);
+        this.gainXp(p.value * this.stats.gemMult);
         this.gemStreak = Math.min(this.gemStreak + 1, 7);
         this.gemStreakTimer = 1.1;
         audio.gem(this.gemStreak);
@@ -803,9 +1201,9 @@ export class Game {
     }
     if (this.weapons.length < 4) {
       for (const def of WEAPONS) {
-        if (this.weapons.some(w => w.id === def.id)) continue;
+        if (this.weapons.some(w => w.id === def.id) || this.banishedW.has(def.id)) continue;
         cands.push({
-          weight: 1.6 * this.stats.luck,
+          weight: 1.3 * this.stats.luck,
           offer: { kind: 'weapon', id: def.id, title: def.name, desc: def.desc, rarity: 2, isNew: true, level: 1 },
         });
       }
@@ -820,11 +1218,10 @@ export class Game {
     }
     if (this.passives.size < 4) {
       for (const def of PASSIVES) {
-        if (this.passives.has(def.id)) continue;
-        // pairing passives for owned weapons get a boost — guides toward evolutions
+        if (this.passives.has(def.id) || this.banishedP.has(def.id)) continue;
         const pairs = this.weapons.some(w => !w.evolved && WEAPONS[w.id].pair === def.id);
         cands.push({
-          weight: (pairs ? 2.4 : 1.2) * this.stats.luck,
+          weight: (pairs ? 2.4 : 1.1) * this.stats.luck,
           offer: { kind: 'passive', id: def.id, title: def.name, desc: def.desc, rarity: pairs ? 1 : 0, isNew: true, level: 1 },
         });
       }
@@ -850,6 +1247,19 @@ export class Game {
     if (this.rerollsLeft <= 0) return null;
     this.rerollsLeft--;
     audio.ui();
+    this.offers = this.generateOffers();
+    return this.offers;
+  }
+
+  /** Remove a NEW item offer from this run's pool. Returns fresh offers. */
+  banish(index: number): CardOffer[] | null {
+    if (this.banishesLeft <= 0) return null;
+    const o = this.offers[index];
+    if (!o || (o.kind !== 'weapon' && o.kind !== 'passive')) return null;
+    this.banishesLeft--;
+    if (o.kind === 'weapon' && o.isNew) this.banishedW.add(o.id as WeaponId);
+    if (o.kind === 'passive' && o.isNew) this.banishedP.add(o.id as PassiveId);
+    audio.deny();
     this.offers = this.generateOffers();
     return this.offers;
   }
@@ -894,6 +1304,7 @@ export class Game {
 
   addWeapon(id: WeaponId): void {
     this.weapons.push({ id, level: 1, cooldown: 0.4, evolved: false, angle: 0, burst: 0, burstTimer: 0 });
+    if (id === WeaponId.Turret) this.turrets.push({ x: this.px + 40, y: this.py - 40, cooldown: 0.5, angle: 0 });
   }
 
   evolveWeapon(id: WeaponId): void {
@@ -901,6 +1312,12 @@ export class Game {
     if (!w) return;
     w.evolved = true;
     w.level = 9;
+    if (id === WeaponId.Turret && this.turrets.length < 2) {
+      this.turrets.push({ x: this.px - 40, y: this.py + 40, cooldown: 0.5, angle: 0 });
+    }
+    if (!profile.evolutionsSeen.includes(WEAPONS[id].evoName)) {
+      profile.evolutionsSeen.push(WEAPONS[id].evoName);
+    }
     this.hitStop = Math.max(this.hitStop, 0.12);
     this.screenFlash = 1;
     this.addTrauma(0.5);
@@ -937,8 +1354,7 @@ export class Game {
           result.shards += 25;
           continue;
         }
-        const pickIdx = (Math.random() * upgradable.length) | 0;
-        const u = upgradable[pickIdx];
+        const u = upgradable[(Math.random() * upgradable.length) | 0];
         if (u.kind === 'weapon') {
           const w = this.weapons.find(x => x.id === u.id)!;
           w.level++;
@@ -959,12 +1375,44 @@ export class Game {
     if (this.phase === 'chest') this.phase = 'run';
   }
 
+  // ------------------------------------------------------------ achievements
+
+  checkAchievements(): void {
+    const r = profile.records;
+    const stats = {
+      totalKills: r.totalKills,
+      bestTime: Math.max(r.bestTime, Math.floor(this.time)),
+      bestCombo: Math.max(r.bestCombo, this.maxCombo),
+      victories: r.victories,
+      runGraze: this.runGraze,
+      runOverdrives: this.runOverdrives,
+      runDashKills: this.runDashKills,
+      evolutionsSeen: profile.evolutionsSeen.length,
+      bossKills: r.bossKills,
+      totalFrozen: r.totalFrozen,
+      wormKills: r.wormKills,
+      shardsHeld: profile.shards,
+      pilotsOwned: profile.pilots.length,
+      cursesTaken: r.cursesTaken,
+      endlessTime: this.endless ? Math.max(r.endlessTime, Math.floor(this.time)) : r.endlessTime,
+    };
+    for (const a of ACHIEVEMENTS) {
+      if (profile.achievements[a.id]) continue;
+      if (a.check(stats)) {
+        profile.achievements[a.id] = true;
+        profile.shards += a.reward;
+        this.hooks.achievement(a.name, a.reward);
+        audio.buy();
+        save();
+      }
+    }
+  }
+
   // ------------------------------------------------------------ run end
 
   finishRun(victory: boolean): void {
     const m = metaBonuses();
     this.score += this.level * 100 + Math.floor(this.time) * 10;
-    // bank only what this ending hasn't banked yet (endless can end a run twice)
     const shardsFromScore = Math.round(((this.score - this.scoreBanked) / 240) * (1 + m.shards));
     const picked = this.shardsPicked - this.pickedBanked;
     this.scoreBanked = this.score;
@@ -974,17 +1422,19 @@ export class Game {
       shardsFromScore, shardsPicked: picked, bossKills: this.bossKills,
       maxCombo: this.maxCombo, pilotName: this.pilot.name, victory, endless: this.endless,
     };
-    // persist
     profile.shards += shardsFromScore + picked;
     profile.records.runs++;
     profile.records.bestTime = Math.max(profile.records.bestTime, Math.floor(this.time));
     profile.records.bestKills = Math.max(profile.records.bestKills, this.kills);
     profile.records.bestLevel = Math.max(profile.records.bestLevel, this.level);
     profile.records.bestScore = Math.max(profile.records.bestScore, Math.round(this.score));
+    profile.records.bestCombo = Math.max(profile.records.bestCombo, this.maxCombo);
+    if (this.endless) profile.records.endlessTime = Math.max(profile.records.endlessTime, Math.floor(this.time));
     if (victory) {
       profile.records.victories++;
       profile.endlessUnlocked = true;
     }
+    this.checkAchievements();
     if (victory) {
       this.phase = 'victory';
       audio.victory();

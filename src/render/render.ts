@@ -1,22 +1,31 @@
-// Canvas renderer: pre-baked glow sprites + additive blending, parallax
-// starfield, neon grid, screen shake, and every entity's vector shape.
+// Canvas renderer: pre-baked glow sprites + additive blending, sector
+// palettes, parallax starfield, arena walls, worms, zones, screen shake.
 
 import { Game } from '../game/game';
-import { EnemyKind, ParticleKind, PickupKind, WeaponId, Affix } from '../game/types';
-import { COLORS, WEAPONS } from '../game/data';
+import { EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
+import { COLORS, WEAPONS, SECTORS } from '../game/data';
 import { bladeGeometry } from '../game/weapons';
-import { clamp, TAU } from '../core/math';
+import { clamp, damp, TAU } from '../core/math';
 import { profile } from '../meta/save';
 
 // particle palette (indexed by particle.color)
-const PALETTE = ['#4df3ff', '#ff3860', '#ffb02e', '#ffd75e', '#ff9f45', '#ff5e7a', '#ffffff'];
+const PALETTE = [
+  '#4df3ff', '#ff3860', '#ffb02e', '#ffd75e', '#ff9f45',
+  '#ff5e7a', '#ffffff', '#7ad7ff', '#9fff45', '#ff7ad7',
+];
+
+const ZONE_COLORS: Record<number, string> = {
+  [ZoneKind.Acid]: '#9fff45',
+  [ZoneKind.Fire]: '#ff7a45',
+  [ZoneKind.Void]: '#c46bff',
+};
 
 interface Star {
   x: number;
   y: number;
   size: number;
-  layer: number; // parallax factor
-  tw: number; // twinkle phase
+  layer: number;
+  tw: number;
 }
 
 export class Renderer {
@@ -28,6 +37,7 @@ export class Renderer {
   private h = 0;
   private dpr = 1;
   private shakeT = 0;
+  private zoom = 1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -84,7 +94,6 @@ export class Renderer {
 
   // ---------------------------------------------------------------- frame
 
-  /** Title-screen background: slow-drifting starfield, no game required. */
   renderAmbient(time: number): void {
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -111,15 +120,20 @@ export class Renderer {
     ctx.stroke();
   }
 
-  render(g: Game, time: number): void {
+  render(g: Game, time: number, dt: number): void {
     const ctx = this.ctx;
     const w = this.w;
     const h = this.h;
+    const sector = SECTORS[g.sectorIdx];
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
-    // background
-    ctx.fillStyle = g.overdriveActive ? '#0d0a14' : '#05060f';
+    // boss-arena zoom-out
+    const zoomTarget = g.arenaActive ? 0.84 : 1;
+    this.zoom += (zoomTarget - this.zoom) * damp(3, dt);
+
+    // background base
+    ctx.fillStyle = g.overdriveActive ? sector.bgOver : sector.bg;
     ctx.fillRect(0, 0, w, h);
 
     // screen shake
@@ -131,26 +145,37 @@ export class Renderer {
       shakeX = Math.sin(this.shakeT * 7.9) * s;
       shakeY = Math.cos(this.shakeT * 6.3) * s;
     }
+
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-w / 2, -h / 2);
+
     const camX = g.camX - w / 2 + shakeX;
     const camY = g.camY - h / 2 + shakeY;
 
-    this.drawBackground(g, camX, camY, time);
+    this.drawBackground(g, camX, camY, time, sector);
 
     ctx.save();
     ctx.translate(-camX, -camY);
 
+    this.drawZones(g, time);
+    this.drawArena(g, time);
     this.drawPickups(g, time);
+    this.drawTurrets(g, time);
     this.drawEnemies(g, time);
+    this.drawWorms(g, time);
     this.drawPlayer(g, time);
     this.drawBlades(g);
-    this.drawProjectiles(g);
+    this.drawProjectiles(g, time);
     this.drawBeams(g);
     this.drawBolts(g);
     this.drawParticles(g);
     this.drawEnemyBullets(g, time);
     this.drawDamageNumbers(g);
 
-    ctx.restore();
+    ctx.restore(); // camera
+    ctx.restore(); // zoom
 
     this.drawOverlays(g, time);
     this.drawJoystick(g);
@@ -158,37 +183,150 @@ export class Renderer {
 
   // ---------------------------------------------------------------- layers
 
-  private drawBackground(g: Game, camX: number, camY: number, time: number): void {
+  private drawBackground(g: Game, camX: number, camY: number, time: number, sector: (typeof SECTORS)[0]): void {
     const ctx = this.ctx;
     const w = this.w;
     const h = this.h;
 
-    // parallax stars
     for (const s of this.stars) {
       const sx = ((s.x - camX * s.layer) % 2000 + 2000) % 2000 - (2000 - w) / 2;
       const sy = ((s.y - camY * s.layer) % 2000 + 2000) % 2000 - (2000 - h) / 2;
       if (sx < -4 || sx > w + 4 || sy < -4 || sy > h + 4) continue;
       const a = 0.25 + 0.2 * Math.sin(time * 2 + s.tw);
-      ctx.fillStyle = `rgba(160,190,255,${a * s.layer * 2.4})`;
+      ctx.fillStyle = `rgba(${sector.star},${a * s.layer * 2.4})`;
       ctx.fillRect(sx, sy, s.size, s.size);
     }
 
-    // neon grid
     const grid = 90;
     const gx = ((-camX % grid) + grid) % grid;
     const gy = ((-camY % grid) + grid) % grid;
-    ctx.strokeStyle = g.overdriveActive ? 'rgba(255,215,94,0.07)' : 'rgba(77,163,255,0.07)';
+    ctx.strokeStyle = g.overdriveActive ? 'rgba(255,215,94,0.07)' : sector.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = gx; x < w; x += grid) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
+    for (let x = gx - grid; x < w + grid; x += grid) {
+      ctx.moveTo(x, -grid);
+      ctx.lineTo(x, h + grid);
     }
-    for (let y = gy; y < h; y += grid) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
+    for (let y = gy - grid; y < h + grid; y += grid) {
+      ctx.moveTo(-grid, y);
+      ctx.lineTo(w + grid, y);
     }
     ctx.stroke();
+  }
+
+  private drawZones(g: Game, time: number): void {
+    const ctx = this.ctx;
+    for (const z of g.zones) {
+      const color = ZONE_COLORS[z.kind];
+      if (z.telegraph > 0) {
+        // warning: pulsing dashed circle
+        const pulse = 0.4 + 0.4 * Math.sin(time * 14);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = pulse;
+        ctx.setLineDash([8, 8]);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.r, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      const fade = Math.min(1, z.life / 0.5);
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawGlow(z.x, z.y, z.r * 1.15, color, 0.18 * fade);
+      ctx.globalAlpha = 0.16 * fade;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.r, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.5 * fade;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // bubbles
+      for (let b = 0; b < 3; b++) {
+        const ba = z.seed + b * 2.1 + time * (1.2 + b * 0.3);
+        const br = z.r * (0.25 + 0.55 * ((Math.sin(ba * 0.7) + 1) / 2));
+        ctx.globalAlpha = 0.3 * fade;
+        ctx.beginPath();
+        ctx.arc(z.x + Math.cos(ba) * br, z.y + Math.sin(ba) * br, 3 + (b % 2) * 2, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  private drawArena(g: Game, time: number): void {
+    if (!g.arenaActive) return;
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = 'lighter';
+    const pulse = 0.5 + 0.3 * Math.sin(time * 4);
+    ctx.strokeStyle = '#ff3860';
+    ctx.globalAlpha = 0.55 * pulse;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([26, 14]);
+    ctx.lineDashOffset = -time * 60;
+    ctx.beginPath();
+    ctx.arc(g.arenaX, g.arenaY, g.arenaR, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.2;
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(g.arenaX, g.arenaY, g.arenaR + 9, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private drawTurrets(g: Game, time: number): void {
+    if (g.turrets.length === 0) return;
+    const ctx = this.ctx;
+    const color = WEAPONS[WeaponId.Turret].color;
+    const evolved = g.weapons.find(x => x.id === WeaponId.Turret)?.evolved;
+    // tether beam
+    if (evolved && g.turrets.length >= 2) {
+      const a = g.turrets[0];
+      const b = g.turrets[1];
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.5 + 0.25 * Math.sin(time * 10);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    for (const t of g.turrets) {
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawGlow(t.x, t.y, 20, color, 0.5);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      ctx.fillStyle = '#0a1220';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let k = 0; k <= 6; k++) {
+        const a = time * 0.6 + (k / 6) * TAU;
+        if (k === 0) ctx.moveTo(Math.cos(a) * 11, Math.sin(a) * 11);
+        else ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.rotate(t.angle);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(4, 0);
+      ctx.lineTo(15, 0);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   private drawPickups(g: Game, time: number): void {
@@ -286,6 +424,7 @@ export class Renderer {
       case EnemyKind.Weaver: return '#ff5e9f';
       case EnemyKind.Swarm: return '#ff6b57';
       case EnemyKind.Mini: return '#ff9f45';
+      case EnemyKind.Flocker: return '#ffd75e';
       default: return COLORS.enemy;
     }
   }
@@ -295,10 +434,10 @@ export class Renderer {
     for (let i = 0; i < g.enemies.count; i++) {
       const e = g.enemies.items[i];
       const boss = e.kind >= EnemyKind.BossWarden;
-      const color = boss ? '#ff3860' : this.enemyColor(e.kind, e.elite);
+      let color = boss ? '#ff3860' : this.enemyColor(e.kind, e.elite);
+      if (e.frozenTimer > 0) color = '#7ad7ff';
 
       if (e.spawnTimer > 0) {
-        // spawn telegraph: growing dashed circle
         const t = 1 - clamp(e.spawnTimer / 0.6, 0, 1);
         ctx.strokeStyle = color;
         ctx.globalAlpha = 0.5 * t;
@@ -316,13 +455,11 @@ export class Renderer {
       ctx.save();
       ctx.translate(e.x, e.y);
 
-      // glow underlay
       ctx.globalCompositeOperation = 'lighter';
       this.drawGlow(0, 0, e.radius * (boss ? 2.6 : 1.9), color, boss ? 0.5 : 0.32);
       ctx.globalCompositeOperation = 'source-over';
 
       if (e.elite) {
-        // affix halo
         const affixColor = e.affix === Affix.Volatile ? '#ffe45e' : e.affix === Affix.Armored ? '#8fa3ff' : '#5eff9f';
         ctx.strokeStyle = affixColor;
         ctx.globalAlpha = 0.6 + 0.3 * Math.sin(time * 6);
@@ -333,12 +470,11 @@ export class Renderer {
         ctx.globalAlpha = 1;
       }
 
-      ctx.fillStyle = flash ? '#ffffff' : '#0a0c18';
+      ctx.fillStyle = flash ? '#ffffff' : e.frozenTimer > 0 ? '#10283a' : '#0a0c18';
       ctx.strokeStyle = flash ? '#ffffff' : color;
       ctx.lineWidth = boss ? 3 : 2;
       const r = e.radius;
 
-      // telegraph flare for dashers about to strike
       if (e.kind === EnemyKind.Dasher && e.aiState === 1) {
         ctx.strokeStyle = '#ffffff';
         ctx.globalAlpha = 0.5 + 0.5 * Math.sin(time * 30);
@@ -348,16 +484,23 @@ export class Renderer {
       switch (e.kind) {
         case EnemyKind.Chaser:
         case EnemyKind.Mini:
-          this.poly(3, r, e.angle);
-          break;
         case EnemyKind.Swarm:
           this.poly(3, r, e.angle);
           break;
+        case EnemyKind.Flocker: {
+          // arrow dart
+          ctx.rotate(e.angle);
+          ctx.moveTo(r * 1.2, 0);
+          ctx.lineTo(-r * 0.8, r * 0.7);
+          ctx.lineTo(-r * 0.3, 0);
+          ctx.lineTo(-r * 0.8, -r * 0.7);
+          ctx.closePath();
+          break;
+        }
         case EnemyKind.Tank:
           this.poly(6, r, time * 0.3);
           break;
         case EnemyKind.Dasher: {
-          // chevron
           const a = e.aiState >= 1 ? Math.atan2(e.aimY, e.aimX) : e.angle;
           ctx.rotate(a);
           ctx.moveTo(r, 0);
@@ -384,7 +527,6 @@ export class Renderer {
           this.poly(6, r, time * 0.5);
           break;
         case EnemyKind.BossSeraph: {
-          // winged diamond
           ctx.moveTo(0, -r);
           ctx.lineTo(r * 0.9, 0);
           ctx.lineTo(0, r);
@@ -404,7 +546,28 @@ export class Renderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
 
-      // boss core + charge telegraph
+      // status decals
+      if (e.frozenTimer > 0) {
+        ctx.strokeStyle = 'rgba(220,245,255,0.8)';
+        ctx.lineWidth = 1.5;
+        for (let k = 0; k < 3; k++) {
+          const a = e.seed + (k / 3) * TAU;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3);
+          ctx.lineTo(Math.cos(a) * r * 1.1, Math.sin(a) * r * 1.1);
+          ctx.stroke();
+        }
+      } else if (e.shockTimer > 0 && Math.sin(time * 40) > 0) {
+        ctx.strokeStyle = '#ffe45e';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.6, -r);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-r * 0.2, r * 0.2);
+        ctx.lineTo(r * 0.6, r);
+        ctx.stroke();
+      }
+
       if (boss) {
         const pulse = 0.5 + 0.5 * Math.sin(time * 4);
         ctx.fillStyle = `rgba(255,56,96,${0.4 + pulse * 0.5})`;
@@ -423,7 +586,6 @@ export class Renderer {
         }
       }
 
-      // elite / tank / boss hp ring
       if ((e.elite || boss) && e.hp < e.maxHp) {
         ctx.strokeStyle = 'rgba(255,255,255,0.7)';
         ctx.lineWidth = 2.5;
@@ -445,16 +607,78 @@ export class Renderer {
     }
   }
 
+  private drawWorms(g: Game, time: number): void {
+    const ctx = this.ctx;
+    const color = '#ff7ad7';
+    for (const w of g.worms) {
+      const startIdx = w.dying > 0 ? w.dyingIdx : 0;
+      // body: back to front
+      for (let s = w.segs.length - 1; s >= startIdx; s--) {
+        const seg = w.segs[s];
+        const isHead = s === 0;
+        const r = isHead ? w.radius * 1.25 : w.radius * (1 - (s / w.segs.length) * 0.35);
+        const flash = w.flashTimer > 0 && (isHead || s < 3);
+        ctx.globalCompositeOperation = 'lighter';
+        this.drawGlow(seg.x, seg.y, r * 1.7, color, isHead ? 0.5 : 0.22);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = flash ? '#ffffff' : '#160a18';
+        ctx.strokeStyle = flash ? '#ffffff' : color;
+        ctx.lineWidth = isHead ? 3 : 2;
+        ctx.beginPath();
+        if (isHead) {
+          // head: pointed hexagon facing travel
+          ctx.save();
+          ctx.translate(seg.x, seg.y);
+          ctx.rotate(w.angle);
+          ctx.moveTo(r * 1.4, 0);
+          ctx.lineTo(r * 0.4, r);
+          ctx.lineTo(-r, r * 0.7);
+          ctx.lineTo(-r, -r * 0.7);
+          ctx.lineTo(r * 0.4, -r);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          // eye
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(r * 0.5, 0, 3.4, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.arc(seg.x, seg.y, r, 0, TAU);
+          ctx.fill();
+          ctx.stroke();
+          // segment spine glints
+          if (s % 2 === 0) {
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.5 + 0.3 * Math.sin(time * 6 + s);
+            ctx.beginPath();
+            ctx.arc(seg.x, seg.y, 2.5, 0, TAU);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+      // head hp arc
+      if (w.dying <= 0 && w.hp < w.maxHp) {
+        const head = w.segs[0];
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, w.radius * 1.7, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0, w.hp / w.maxHp));
+        ctx.stroke();
+      }
+    }
+  }
+
   private drawPlayer(g: Game, time: number): void {
     const ctx = this.ctx;
-    const blink = g.invuln > 0 && g.dashTimer <= 0 && Math.sin(time * 40) > 0;
+    const blink = g.invuln > 0 && g.dashTimer <= 0 && g.reflectTimer <= 0 && Math.sin(time * 40) > 0;
     const color = g.overdriveActive ? COLORS.overdrive : g.pilot.color;
     const angle = Math.atan2(g.moveDirY, g.moveDirX);
 
     ctx.globalCompositeOperation = 'lighter';
-    // engine + body glow
     this.drawGlow(g.px, g.py, 34, color, g.overdriveActive ? 0.75 : 0.45);
-    // overdrive charge arc
     if (!g.overdriveActive && g.overdrive > 2) {
       ctx.strokeStyle = COLORS.overdrive;
       ctx.globalAlpha = 0.5;
@@ -474,6 +698,17 @@ export class Renderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    // Aegis shield
+    if (g.reflectTimer > 0) {
+      const pulse = 1 + Math.sin(time * 12) * 0.08;
+      ctx.strokeStyle = '#ff9f45';
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(g.px, g.py, 24 * pulse, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.globalCompositeOperation = 'source-over';
 
     if (!blink) {
@@ -481,7 +716,6 @@ export class Renderer {
       ctx.translate(g.px, g.py);
       ctx.rotate(angle);
       const r = g.playerRadius;
-      // ship
       ctx.fillStyle = '#0a1220';
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.2;
@@ -493,14 +727,12 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      // cockpit
       ctx.fillStyle = COLORS.playerCore;
       ctx.beginPath();
       ctx.arc(r * 0.2, 0, 3, 0, TAU);
       ctx.fill();
       ctx.restore();
 
-      // engine flame
       const moving = g.input.moveX !== 0 || g.input.moveY !== 0 || g.dashTimer > 0;
       if (moving) {
         ctx.globalCompositeOperation = 'lighter';
@@ -514,8 +746,7 @@ export class Renderer {
       }
     }
 
-    // shield ring after revive-level invuln
-    if (g.invuln > 1) {
+    if (g.invuln > 1 && g.reflectTimer <= 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.6)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -531,7 +762,6 @@ export class Renderer {
     const color = WEAPONS[WeaponId.Blades].color;
     ctx.globalCompositeOperation = 'lighter';
     if (geo.evolved) {
-      // halo saw: annulus with rotating teeth
       ctx.strokeStyle = color;
       ctx.globalAlpha = 0.35;
       ctx.lineWidth = (158 - 92) * g.stats.areaMult;
@@ -573,32 +803,108 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  private drawProjectiles(g: Game): void {
+  private drawProjectiles(g: Game, time: number): void {
     const ctx = this.ctx;
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < g.projectiles.count; i++) {
       const p = g.projectiles.items[i];
       const color = WEAPONS[p.kind]?.color ?? '#ffffff';
       const a = Math.atan2(p.vy, p.vx);
-      this.drawGlow(p.x, p.y, p.radius * 3, color, 0.55);
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(a);
-      ctx.fillStyle = '#ffffff';
-      if (p.kind === WeaponId.Swarm) {
-        ctx.beginPath();
-        ctx.moveTo(p.radius + 4, 0);
-        ctx.lineTo(-p.radius, p.radius * 0.7);
-        ctx.lineTo(-p.radius, -p.radius * 0.7);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        // stretched bolt
-        ctx.beginPath();
-        ctx.ellipse(0, 0, p.radius * 2.2, p.radius * 0.75, 0, 0, TAU);
-        ctx.fill();
+      switch (p.kind) {
+        case WeaponId.Glaive: {
+          this.drawGlow(p.x, p.y, p.radius * 2.2, color, 0.55);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(time * 16 + p.seed * 6);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(-p.radius, 0);
+          ctx.lineTo(p.radius, 0);
+          ctx.moveTo(0, -p.radius);
+          ctx.lineTo(0, p.radius);
+          ctx.stroke();
+          ctx.restore();
+          break;
+        }
+        case WeaponId.Mines: {
+          const armed = p.hitCd <= 0;
+          const blink = armed && Math.sin(time * 10 + p.seed * 9) > 0.4;
+          this.drawGlow(p.x, p.y, 12, color, blink ? 0.8 : 0.3);
+          ctx.fillStyle = blink ? '#ffffff' : color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 5, 0, TAU);
+          ctx.fill();
+          break;
+        }
+        case WeaponId.Void: {
+          this.drawGlow(p.x, p.y, p.radius * 2.6, color, 0.5);
+          ctx.fillStyle = '#0a0614';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, TAU);
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+          // swirl
+          ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius * 0.55, time * 5 % TAU, (time * 5 + 2) % TAU);
+          ctx.stroke();
+          break;
+        }
+        case WeaponId.Cryo: {
+          this.drawGlow(p.x, p.y, 9, color, 0.5);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(a);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(6, 0);
+          ctx.lineTo(0, 3);
+          ctx.lineTo(-6, 0);
+          ctx.lineTo(0, -3);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          break;
+        }
+        case WeaponId.Acid: {
+          this.drawGlow(p.x, p.y, 12, color, 0.6);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius * 0.8 + Math.sin(time * 18) * 1.2, 0, TAU);
+          ctx.fill();
+          break;
+        }
+        case WeaponId.Swarm: {
+          this.drawGlow(p.x, p.y, p.radius * 3, color, 0.55);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(a);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(p.radius + 4, 0);
+          ctx.lineTo(-p.radius, p.radius * 0.7);
+          ctx.lineTo(-p.radius, -p.radius * 0.7);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          break;
+        }
+        default: {
+          this.drawGlow(p.x, p.y, p.radius * 3, color, 0.55);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(a);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.ellipse(0, 0, p.radius * 2.2, p.radius * 0.75, 0, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
       }
-      ctx.restore();
     }
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -641,7 +947,6 @@ export class Renderer {
       }
       ctx.lineTo(b.x2, b.y2);
       ctx.stroke();
-      // white core
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#ffffff';
       ctx.beginPath();
@@ -766,14 +1071,12 @@ export class Renderer {
     const w = this.w;
     const h = this.h;
 
-    // vignette
     const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
     vg.addColorStop(1, 'rgba(0,0,0,0.5)');
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, w, h);
 
-    // low HP pulse
     const hpFrac = g.hp / g.stats.maxHp;
     if (hpFrac < 0.35 && g.phase === 'run') {
       const a = (0.35 - hpFrac) * (0.9 + 0.5 * Math.sin(time * 6)) * 0.9;
@@ -784,19 +1087,24 @@ export class Renderer {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // screen flash
     if (g.screenFlash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${g.screenFlash * 0.28})`;
       ctx.fillRect(0, 0, w, h);
     }
 
-    // overdrive edges
     if (g.overdriveActive) {
       const a = 0.12 + 0.06 * Math.sin(time * 9);
       const og = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.4, w / 2, h / 2, Math.max(w, h) * 0.72);
       og.addColorStop(0, 'rgba(255,215,94,0)');
       og.addColorStop(1, `rgba(255,190,60,${a})`);
       ctx.fillStyle = og;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // bullet time tint
+    if (g.bulletTime > 0) {
+      const a = Math.min(0.14, g.bulletTime * 0.1);
+      ctx.fillStyle = `rgba(120,180,255,${a})`;
       ctx.fillRect(0, 0, w, h);
     }
   }

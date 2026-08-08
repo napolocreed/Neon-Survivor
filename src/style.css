@@ -935,3 +935,289 @@ button {
   line-height: 1.6;
   letter-spacing: 0.5px;
 }
+
+/* ---------------------------------------------------------------- v3 */
+
+.btn-badge {
+  font-size: 11px;
+  color: var(--dim);
+  margin-left: 6px;
+  letter-spacing: 0;
+}
+
+/* nanite matrix */
+.matrix-grid {
+  width: 100%;
+  max-width: 460px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  padding-bottom: 24px;
+}
+
+.matrix-branch {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  margin-bottom: 2px;
+}
+
+.matrix-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.matrix-node {
+  position: relative;
+  padding: 10px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.matrix-node .armory-name { font-size: 12.5px; }
+.matrix-node .armory-desc { font-size: 10.5px; }
+.matrix-node .armory-buy { padding: 7px 10px; font-size: 12px; }
+.matrix-node .armory-pips { justify-content: center; }
+.matrix-node .pip { width: 12px; }
+
+.matrix-node.active {
+  border-color: rgba(77, 243, 255, 0.45);
+}
+
+.matrix-node.capstone {
+  border-color: rgba(255, 215, 94, 0.4);
+}
+
+.matrix-node.capstone.active {
+  box-shadow: 0 0 18px rgba(255, 215, 94, 0.25);
+}
+
+.matrix-node.locked {
+  opacity: 0.45;
+}
+
+.matrix-link {
+  position: absolute;
+  top: -19px;
+  left: 50%;
+  width: 2px;
+  height: 18px;
+  background: var(--line);
+}
+
+.matrix-col .matrix-node:first-of-type .matrix-link {
+  display: none;
+}
+
+.matrix-node.active .matrix-link {
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(77, 243, 255, 0.8);
+}
+
+.matrix-owned {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--green);
+}
+
+/* achievements */
+.ach-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  opacity: 0.75;
+}
+
+.ach-item.done {
+  opacity: 1;
+  border-color: rgba(255, 215, 94, 0.4);
+}
+
+.ach-icon { font-size: 20px; width: 26px; text-align: center; }
+
+.ach-reward {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.ach-item.done .ach-reward { color: var(--green); }
+
+.ach-pop {
+  position: absolute;
+  top: calc(var(--sat) + 90px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 94, 0.5);
+  background: rgba(20, 16, 5, 0.92);
+  color: var(--gold);
+  font-size: 13px;
+  pointer-events: none;
+  animation: ach-in 3.4s ease-out forwards;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+.ach-pop span { color: var(--text); font-weight: 800; }
+
+@keyframes ach-in {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-16px); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* sector toast */
+.toast.sector {
+  color: var(--cyan);
+  font-size: clamp(20px, 6vw, 32px);
+  text-shadow: 0 0 24px rgba(77, 243, 255, 0.8);
+  line-height: 1.3;
+}
+
+.toast.sector span {
+  font-size: 0.55em;
+  letter-spacing: 6px;
+  color: var(--text);
+  font-weight: 400;
+}
+
+/* cursed tech */
+.deal-title {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 5px;
+  color: var(--red);
+  text-shadow: 0 0 22px rgba(255, 56, 96, 0.8);
+  margin-bottom: 6px;
+  animation: neon-pulse 1.2s infinite;
+}
+
+.card.cursed {
+  border-color: rgba(255, 94, 122, 0.55);
+  background: linear-gradient(135deg, rgba(50, 8, 18, 0.95), rgba(18, 5, 10, 0.95));
+}
+
+.card.cursed::before { background: var(--red); box-shadow: 0 0 12px var(--red); }
+
+.curse-good {
+  margin-top: 7px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.curse-bad {
+  margin-top: 3px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--red);
+}
+
+/* banish */
+.card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.card-row .card { flex: 1; }
+
+.banish-btn {
+  width: 42px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 94, 122, 0.35);
+  color: var(--red);
+  font-size: 16px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.levelup-actions {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.banish-hint {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--red);
+  letter-spacing: 1px;
+}
+
+/* ability button */
+.hud-ability {
+  position: absolute;
+  right: 14px;
+  bottom: calc(var(--sab) + 78px);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: rgba(10, 14, 30, 0.75);
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.2s;
+}
+
+.hud-ability.ready {
+  border-color: rgba(77, 243, 255, 0.6);
+  box-shadow: 0 0 18px rgba(77, 243, 255, 0.35);
+  animation: neon-pulse 1.6s infinite;
+}
+
+.hud-ability-ring {
+  position: absolute;
+  inset: 2px;
+  transform: rotate(-90deg);
+}
+
+.hud-ability-ring circle {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 2.5;
+  stroke-dasharray: 110;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.2s linear;
+}
+
+.hud-ability-name {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  text-align: center;
+  line-height: 1.2;
+  padding: 0 4px;
+}
+
+.pilot-ability {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--gold);
+  line-height: 1.4;
+}

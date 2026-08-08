@@ -10,6 +10,7 @@ export const enum EnemyKind {
   Splitter = 5,
   Mini = 6,
   Weaver = 7,
+  Flocker = 8,
   BossWarden = 100,
   BossSeraph = 101,
   BossOmega = 102,
@@ -47,10 +48,17 @@ export interface Enemy {
   slowTimer: number;
   burnTimer: number;
   burnDps: number;
+  chill: number; // 0..3 stacks; at 3 → frozen
+  frozenTimer: number;
+  shockTimer: number; // stunned + takes bonus damage
+  acidTimer: number;
+  acidDps: number;
   bladeCd: number; // orbital-blade re-hit throttle
   dashHitCd: number; // dash-through re-hit throttle
+  zoneCd: number; // ground-zone tick throttle
   // AI scratch
   seed: number;
+  flockId: number;
   aiState: number;
   aiTimer: number;
   aimX: number;
@@ -72,8 +80,8 @@ export interface Projectile {
   seed: number;
   homing: number; // steering strength, 0 = none
   targetIdx: number; // enemy index hint for homing (revalidated)
-  hitCd: number; // for persistent beams: per-frame hit throttle
-  lastHit: number; // enemy slot bitfilter is overkill; short memory of last enemy hit
+  hitCd: number;
+  phase: number; // glaive: 0 outgoing 1 returning · mine: armed state · void orb: pull
   knockback: number;
 }
 
@@ -108,6 +116,52 @@ export interface Pickup {
   magnetized: boolean;
   life: number; // gems live forever (-1); consumables decay
   seed: number;
+}
+
+export const enum ZoneKind {
+  Acid = 0, // weapon pools & sector-2 hazard
+  Fire = 1, // sector-3 hazard
+  Void = 2, // event horizon (pull + dps)
+}
+
+export interface Zone {
+  x: number;
+  y: number;
+  r: number;
+  life: number;
+  maxLife: number;
+  dps: number;
+  hostile: boolean; // true = hurts the player, false = hurts enemies
+  kind: ZoneKind;
+  telegraph: number; // warn time before it becomes active
+  seed: number;
+}
+
+export interface TurretState {
+  x: number;
+  y: number;
+  cooldown: number;
+  angle: number;
+}
+
+export interface WormSeg {
+  x: number;
+  y: number;
+}
+
+export interface Worm {
+  segs: WormSeg[];
+  hp: number;
+  maxHp: number;
+  speed: number;
+  radius: number;
+  damage: number;
+  angle: number;
+  seed: number;
+  hitCd: number; // player contact throttle
+  flashTimer: number;
+  dying: number; // >0: cascade destruction in progress
+  dyingIdx: number;
 }
 
 export const enum ParticleKind {
@@ -149,6 +203,12 @@ export const enum WeaponId {
   Swarm = 3,
   Rail = 4,
   Blades = 5,
+  Cryo = 6,
+  Acid = 7,
+  Glaive = 8,
+  Mines = 9,
+  Turret = 10,
+  Void = 11,
 }
 
 export const enum PassiveId {
@@ -161,6 +221,7 @@ export const enum PassiveId {
   Magnet = 6,
   Plating = 7,
   Reactor = 8,
+  Catalyst = 9, // status effect potency
 }
 
 export interface WeaponState {
@@ -168,12 +229,12 @@ export interface WeaponState {
   level: number; // 1..8, 9 = evolved
   cooldown: number;
   evolved: boolean;
-  angle: number; // scratch (orbitals rotation, rail sweep...)
+  angle: number; // scratch (orbitals rotation…)
   burst: number; // scratch for burst fire
   burstTimer: number;
 }
 
-/** Recomputed from pilot + meta + passives whenever anything changes. */
+/** Recomputed from pilot + meta + passives + curses whenever anything changes. */
 export interface PlayerStats {
   maxHp: number;
   regen: number;
@@ -183,15 +244,18 @@ export interface PlayerStats {
   damageMult: number;
   fireRateMult: number; // multiplies attack cooldowns down
   areaMult: number;
-  projSpeedMult: number;
+  statusMult: number; // status-effect potency
   critChance: number;
   critMult: number;
   luck: number;
   xpMult: number;
+  gemMult: number; // curse: gem value multiplier
   shardMult: number;
+  damageTakenMult: number;
   dashCharges: number;
   dashCooldown: number;
   dashDamageMult: number;
+  abilityCooldown: number;
 }
 
 export interface CardOffer {
@@ -204,4 +268,11 @@ export interface CardOffer {
   level: number; // resulting level
 }
 
-export type GamePhase = 'run' | 'levelup' | 'chest' | 'over' | 'victory' | 'paused';
+export interface CurseDef {
+  id: string;
+  name: string;
+  good: string;
+  bad: string;
+}
+
+export type GamePhase = 'run' | 'levelup' | 'chest' | 'deal' | 'over' | 'victory' | 'paused';

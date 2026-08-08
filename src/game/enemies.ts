@@ -1,18 +1,41 @@
-// Enemy AI, the spawn director (waves, elites, events, bosses), enemy bullets.
+// Enemy AI, flocks, void serpents (worms), the spawn director, enemy bullets.
 
 import { Game, GRAZE_RADIUS } from './game';
-import { Enemy, EnemyKind, Affix, ParticleKind } from './types';
-import { WAVES, BOSS_TIMES, EVENTS, ENEMY_DEFS, BOSS_NAMES, hpScale, damageScale } from './data';
+import { Enemy, EnemyKind, Affix, ParticleKind, Worm } from './types';
+import { WAVES, BOSS_TIMES, EVENTS, ENEMY_DEFS, BOSS_NAMES, WORM, hpScale, damageScale } from './data';
 import { rand, randInt, TAU, pickWeighted, clamp } from '../core/math';
 import { audio } from '../audio/audio';
+import { profile } from '../meta/save';
+
+// per-frame flock aggregation scratch
+const flockAgg = new Map<number, { n: number; cx: number; cy: number; vx: number; vy: number }>();
+let nextFlockId = 1;
 
 // ------------------------------------------------------------ AI
 
 export function updateEnemies(g: Game, dt: number): void {
+  // aggregate flock data from last frame's state
+  flockAgg.clear();
+  for (let i = 0; i < g.enemies.count; i++) {
+    const e = g.enemies.items[i];
+    if (e.flockId < 0 || e.spawnTimer > 0) continue;
+    let f = flockAgg.get(e.flockId);
+    if (!f) {
+      f = { n: 0, cx: 0, cy: 0, vx: 0, vy: 0 };
+      flockAgg.set(e.flockId, f);
+    }
+    f.n++;
+    f.cx += e.x; f.cy += e.y;
+    f.vx += e.vx; f.vy += e.vy;
+  }
+  for (const f of flockAgg.values()) {
+    f.cx /= f.n; f.cy /= f.n;
+    f.vx /= f.n; f.vy /= f.n;
+  }
+
   for (let i = g.enemies.count - 1; i >= 0; i--) {
     const e = g.enemies.items[i];
 
-    // status ticks
     if (e.flashTimer > 0) e.flashTimer -= dt;
     if (e.spawnTimer > 0) {
       e.spawnTimer -= dt;
@@ -20,6 +43,8 @@ export function updateEnemies(g: Game, dt: number): void {
     }
     if (e.dashHitCd > 0) e.dashHitCd -= dt;
     if (e.slowTimer > 0) e.slowTimer -= dt;
+    if (e.shockTimer > 0) e.shockTimer -= dt;
+    if (e.chill > 0 && e.frozenTimer <= 0) e.chill = Math.max(0, e.chill - dt * 0.5);
     if (e.burnTimer > 0) {
       e.burnTimer -= dt;
       e.hp -= e.burnDps * dt;
@@ -28,10 +53,38 @@ export function updateEnemies(g: Game, dt: number): void {
         p.kind = ParticleKind.Orb; p.x = e.x + rand(-e.radius, e.radius); p.y = e.y + rand(-e.radius, e.radius);
         p.vx = 0; p.vy = -30; p.life = 0.3; p.maxLife = 0.3; p.size = 5; p.color = 4;
       }
-      if (e.hp <= 0) {
-        g.killEnemy(e);
-        continue;
+      if (e.hp <= 0) { g.killEnemy(e); continue; }
+    }
+    if (e.acidTimer > 0) {
+      e.acidTimer -= dt;
+      e.hp -= e.acidDps * dt;
+      if (Math.random() < dt * 5) {
+        const p = g.particles.spawnOrRecycle();
+        p.kind = ParticleKind.Orb; p.x = e.x + rand(-e.radius, e.radius); p.y = e.y + rand(-e.radius, e.radius);
+        p.vx = 0; p.vy = -20; p.life = 0.25; p.maxLife = 0.25; p.size = 4; p.color = 8;
       }
+      if (e.hp <= 0) { g.killEnemy(e); continue; }
+    }
+
+    // frozen / shocked: locked in place (knockback still applies)
+    if (e.frozenTimer > 0) {
+      e.frozenTimer -= dt;
+      e.vx = 0;
+      e.vy = 0;
+      e.x += e.kbx * dt;
+      e.y += e.kby * dt;
+      const kd = 1 - Math.min(1, dt * 6);
+      e.kbx *= kd; e.kby *= kd;
+      continue;
+    }
+    if (e.shockTimer > 0) {
+      e.vx *= 0.8;
+      e.vy *= 0.8;
+      e.x += (e.vx + e.kbx) * dt;
+      e.y += (e.vy + e.kby) * dt;
+      const kd = 1 - Math.min(1, dt * 6);
+      e.kbx *= kd; e.kby *= kd;
+      continue;
     }
 
     const dx = g.px - e.x;
@@ -63,6 +116,23 @@ export function updateEnemies(g: Game, dt: number): void {
           e.vy = (ny + nx * wob) * spd;
           break;
         }
+        case EnemyKind.Flocker: {
+          // boids-lite: cohesion + alignment + player seek
+          const f = e.flockId >= 0 ? flockAgg.get(e.flockId) : undefined;
+          let sx = nx, sy = ny;
+          if (f && f.n > 1) {
+            const cohX = (f.cx - e.x) * 0.012;
+            const cohY = (f.cy - e.y) * 0.012;
+            const alnM = Math.hypot(f.vx, f.vy) || 1;
+            sx = nx * 0.9 + cohX + (f.vx / alnM) * 0.55;
+            sy = ny * 0.9 + cohY + (f.vy / alnM) * 0.55;
+            const m = Math.hypot(sx, sy) || 1;
+            sx /= m; sy /= m;
+          }
+          e.vx = sx * spd;
+          e.vy = sy * spd;
+          break;
+        }
         case EnemyKind.Tank:
         case EnemyKind.Splitter:
           e.vx = nx * spd;
@@ -70,21 +140,21 @@ export function updateEnemies(g: Game, dt: number): void {
           break;
         case EnemyKind.Dasher: {
           e.aiTimer -= dt;
-          if (e.aiState === 0) { // approach
+          if (e.aiState === 0) {
             e.vx = nx * spd;
             e.vy = ny * spd;
             if (dist < 240) { e.aiState = 1; e.aiTimer = 0.55; }
-          } else if (e.aiState === 1) { // telegraph
+          } else if (e.aiState === 1) {
             e.vx *= 0.82;
             e.vy *= 0.82;
             e.aimX = nx;
             e.aimY = ny;
             if (e.aiTimer <= 0) { e.aiState = 2; e.aiTimer = 0.4; }
-          } else if (e.aiState === 2) { // dash!
+          } else if (e.aiState === 2) {
             e.vx = e.aimX * spd * 3.6;
             e.vy = e.aimY * spd * 3.6;
             if (e.aiTimer <= 0) { e.aiState = 3; e.aiTimer = 0.9; }
-          } else { // recover
+          } else {
             e.vx *= 0.9;
             e.vy *= 0.9;
             if (e.aiTimer <= 0) e.aiState = 0;
@@ -94,7 +164,7 @@ export function updateEnemies(g: Game, dt: number): void {
         case EnemyKind.Spitter: {
           if (dist > 330) { e.vx = nx * spd; e.vy = ny * spd; }
           else if (dist < 230) { e.vx = -nx * spd * 0.8; e.vy = -ny * spd * 0.8; }
-          else { e.vx = -ny * spd * 0.4; e.vy = nx * spd * 0.4; } // strafe
+          else { e.vx = -ny * spd * 0.4; e.vy = nx * spd * 0.4; }
           e.shootTimer -= dt;
           if (e.shootTimer <= 0 && dist < 460) {
             e.shootTimer = 2.6;
@@ -106,7 +176,6 @@ export function updateEnemies(g: Game, dt: number): void {
       }
     }
 
-    // integrate + knockback
     e.x += (e.vx + e.kbx) * dt;
     e.y += (e.vy + e.kby) * dt;
     const kbDecay = 1 - Math.min(1, dt * 6);
@@ -114,7 +183,7 @@ export function updateEnemies(g: Game, dt: number): void {
     e.kby *= kbDecay;
     e.angle = Math.atan2(e.vy, e.vx);
 
-    // soft separation (cheap: sample up to 4 neighbors from last frame's grid)
+    // soft separation
     if (e.kind < EnemyKind.BossWarden) {
       const near = g.grid.query(e.x, e.y, e.radius + 14);
       let pushed = 0;
@@ -135,7 +204,7 @@ export function updateEnemies(g: Game, dt: number): void {
       }
     }
 
-    // recycle stragglers: teleport far-behind enemies to the spawn ring
+    // recycle stragglers
     if (dist > g.viewR + 560 && e.kind < EnemyKind.BossWarden) {
       const a = Math.random() * TAU;
       const r = g.viewR + rand(60, 140);
@@ -144,6 +213,160 @@ export function updateEnemies(g: Game, dt: number): void {
       e.spawnTimer = 0.4;
     }
   }
+}
+
+// ------------------------------------------------------------ worms
+
+export function updateWorms(g: Game, dt: number): void {
+  for (let wi = g.worms.length - 1; wi >= 0; wi--) {
+    const w = g.worms[wi];
+    if (w.flashTimer > 0) w.flashTimer -= dt;
+    w.hitCd -= dt;
+
+    // death cascade: segments pop one by one, front to back
+    if (w.dying > 0) {
+      w.dying -= dt;
+      if (w.dying <= 0 && w.dyingIdx < w.segs.length) {
+        const s = w.segs[w.dyingIdx];
+        for (let k = 0; k < 6; k++) {
+          const p = g.particles.spawnOrRecycle();
+          const a = Math.random() * TAU;
+          p.kind = k % 2 ? ParticleKind.Spark : ParticleKind.Shard;
+          p.x = s.x; p.y = s.y;
+          p.vx = Math.cos(a) * rand(80, 300); p.vy = Math.sin(a) * rand(80, 300);
+          p.life = rand(0.3, 0.6); p.maxLife = p.life; p.size = rand(2, 4); p.color = 9;
+          p.rot = Math.random() * TAU; p.vrot = rand(-8, 8);
+        }
+        const ring = g.particles.spawnOrRecycle();
+        ring.kind = ParticleKind.Ring; ring.x = s.x; ring.y = s.y; ring.vx = 0; ring.vy = 0;
+        ring.life = 0.3; ring.maxLife = 0.3; ring.size = w.radius * 2; ring.color = 9;
+        g.spawnGem(s.x, s.y, Math.round((WORM.xp / w.segs.length) * (1 + g.time / 300)));
+        audio.kill(20);
+        g.addTrauma(0.1);
+        w.dyingIdx++;
+        w.dying = w.dyingIdx < w.segs.length ? 0.07 : 0;
+        if (w.dyingIdx >= w.segs.length) {
+          g.worms.splice(wi, 1);
+          profile.records.wormKills++;
+          g.kills++;
+        }
+      }
+      continue;
+    }
+
+    // head steering: sinuous approach
+    const head = w.segs[0];
+    const dx = g.px - head.x;
+    const dy = g.py - head.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const targetA = Math.atan2(dy, dx) + Math.sin(g.time * 2.2 + w.seed) * 0.7;
+    let da = targetA - w.angle;
+    while (da > Math.PI) da -= TAU;
+    while (da < -Math.PI) da += TAU;
+    w.angle += clamp(da, -2.4 * dt, 2.4 * dt);
+    const spd = w.speed * (dist > 500 ? 1.35 : 1);
+    head.x += Math.cos(w.angle) * spd * dt;
+    head.y += Math.sin(w.angle) * spd * dt;
+
+    // segments follow at fixed spacing
+    for (let s = 1; s < w.segs.length; s++) {
+      const prev = w.segs[s - 1];
+      const seg = w.segs[s];
+      const sdx = prev.x - seg.x;
+      const sdy = prev.y - seg.y;
+      const d = Math.hypot(sdx, sdy) || 1;
+      const excess = d - WORM.segSpacing;
+      if (excess > 0) {
+        seg.x += (sdx / d) * excess;
+        seg.y += (sdy / d) * excess;
+      }
+    }
+
+    // player contact (any segment)
+    if (w.hitCd <= 0) {
+      for (let s = 0; s < w.segs.length; s++) {
+        const seg = w.segs[s];
+        const d2 = (seg.x - g.px) ** 2 + (seg.y - g.py) ** 2;
+        if (d2 < (w.radius + g.playerRadius) ** 2) {
+          w.hitCd = 0.75;
+          g.hurtPlayer(w.damage);
+          break;
+        }
+        if (d2 < (w.radius + GRAZE_RADIUS) ** 2 && w.hitCd <= 0 && Math.random() < dt * 3) {
+          g.runGraze++;
+          g.chargeOverdrive(0.8);
+        }
+      }
+    }
+  }
+}
+
+/** Damage a worm at a specific segment. Head takes double. Returns true if it hit. */
+export function hitWorm(g: Game, w: Worm, segIdx: number, damage: number): boolean {
+  if (w.dying > 0) return false;
+  const mult = segIdx === 0 ? 2 : 0.75; // head is the weak point, body is plated
+  w.hp -= damage * mult;
+  w.flashTimer = 0.08;
+  const n = g.dmgNumbers.spawnOrRecycle();
+  const s = w.segs[segIdx];
+  n.x = s.x; n.y = s.y - w.radius - 4;
+  n.vy = -60; n.value = Math.round(damage * mult); n.life = 0.55; n.crit = segIdx === 0;
+  audio.hit();
+  if (w.hp <= 0) {
+    w.dying = 0.05;
+    w.dyingIdx = 0;
+    g.score += 800;
+    g.combo += 5;
+    g.maxCombo = Math.max(g.maxCombo, g.combo);
+    g.comboTimer = 3;
+    g.hitStop = Math.max(g.hitStop, 0.12);
+    g.addTrauma(0.45);
+    g.haptic(40);
+    audio.bigKill();
+  }
+  return true;
+}
+
+/** First worm segment overlapping the circle, or null. */
+export function wormAt(g: Game, x: number, y: number, r: number): { worm: Worm; segIdx: number } | null {
+  for (const w of g.worms) {
+    if (w.dying > 0) continue;
+    const rr = (r + w.radius) ** 2;
+    for (let s = 0; s < w.segs.length; s++) {
+      const seg = w.segs[s];
+      const dx = seg.x - x;
+      const dy = seg.y - y;
+      if (dx * dx + dy * dy < rr) return { worm: w, segIdx: s };
+    }
+  }
+  return null;
+}
+
+export function spawnWorm(g: Game): void {
+  const a = Math.random() * TAU;
+  const r = g.viewR + 150;
+  const x = g.px + Math.cos(a) * r;
+  const y = g.py + Math.sin(a) * r;
+  const segs = [];
+  for (let s = 0; s < WORM.segCount; s++) {
+    segs.push({ x: x - Math.cos(a) * s * WORM.segSpacing, y: y - Math.sin(a) * s * WORM.segSpacing });
+  }
+  g.worms.push({
+    segs,
+    hp: WORM.hp * hpScale(g.time),
+    maxHp: WORM.hp * hpScale(g.time),
+    speed: WORM.speed,
+    radius: WORM.radius,
+    damage: Math.round(WORM.damage * damageScale(g.time)),
+    angle: a + Math.PI,
+    seed: Math.random() * TAU,
+    hitCd: 0,
+    flashTimer: 0,
+    dying: 0,
+    dyingIdx: 0,
+  });
+  audio.bossWarning();
+  g.addTrauma(0.3);
 }
 
 // ------------------------------------------------------------ bosses
@@ -173,24 +396,24 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
 
   switch (e.kind) {
     case EnemyKind.BossWarden: {
-      if (e.aiState === 0) { // chase
+      if (e.aiState === 0) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 1; e.aiTimer = 0.6; }
-      } else if (e.aiState === 1) { // ring telegraph
+      } else if (e.aiState === 1) {
         e.vx *= 0.9; e.vy *= 0.9;
         if (e.aiTimer <= 0) {
           ring(mid ? 22 : 16, 175);
           if (mid) ring(16, 135, 0.2);
           e.aiState = 2; e.aiTimer = 1.8;
         }
-      } else if (e.aiState === 2) { // chase
+      } else if (e.aiState === 2) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 3; e.aiTimer = 0.7; e.aimX = nx; e.aimY = ny; }
-      } else if (e.aiState === 3) { // charge telegraph
+      } else if (e.aiState === 3) {
         e.vx *= 0.85; e.vy *= 0.85;
         e.aimX = nx; e.aimY = ny;
         if (e.aiTimer <= 0) { e.aiState = 4; e.aiTimer = 0.75; }
-      } else { // charge!
+      } else {
         e.vx = e.aimX * 540;
         e.vy = e.aimY * 540;
         if (e.aiTimer <= 0) { e.aiState = 0; e.aiTimer = 2.2; }
@@ -201,7 +424,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       if (e.aiState === 0) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 1; e.aiTimer = 2.8; e.shootTimer = 0; }
-      } else if (e.aiState === 1) { // spiral barrage
+      } else if (e.aiState === 1) {
         e.vx = nx * spd * 0.3; e.vy = ny * spd * 0.3;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0) {
@@ -216,7 +439,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       } else if (e.aiState === 2) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 3; e.aiTimer = 1.2; e.shootTimer = 0; e.seed = 0; }
-      } else if (e.aiState === 3) { // triple shotgun
+      } else if (e.aiState === 3) {
         e.vx *= 0.9; e.vy *= 0.9;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0 && e.seed < 3) {
@@ -225,7 +448,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
           shotgun(5, 230);
         }
         if (e.aiTimer <= 0) { e.aiState = 4; }
-      } else { // summon
+      } else {
         for (let k = 0; k < 5; k++) {
           const a = Math.random() * TAU;
           const m = g.spawnEnemyAt(EnemyKind.Swarm, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70, hpScale(g.time));
@@ -239,7 +462,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       if (e.aiState === 0) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 1; e.aiTimer = 1.4; e.shootTimer = 0; e.seed = 0; }
-      } else if (e.aiState === 1) { // aimed bursts
+      } else if (e.aiState === 1) {
         e.vx = nx * spd * 0.5; e.vy = ny * spd * 0.5;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0 && e.seed < (enraged ? 4 : 2)) {
@@ -248,7 +471,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
           shotgun(enraged ? 7 : 5, 250);
         }
         if (e.aiTimer <= 0) { e.aiState = 2; e.aiTimer = 2.1; e.shootTimer = 0; }
-      } else if (e.aiState === 2) { // 4-arm spiral
+      } else if (e.aiState === 2) {
         e.vx = nx * spd * 0.25; e.vy = ny * spd * 0.25;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0) {
@@ -260,7 +483,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
           }
         }
         if (e.aiTimer <= 0) { e.aiState = 3; e.aiTimer = 0.5; }
-      } else { // double ring + maybe dash
+      } else {
         if (e.aiTimer <= 0) {
           ring(20, 190);
           ring(14, 140, 0.22);
@@ -278,8 +501,17 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
     }
   }
 
-  // soft leash: bosses sprint back when kited far offscreen
-  if (dist > g.viewR + 200) {
+  // keep bosses inside the arena
+  if (g.arenaActive) {
+    const adx = e.x - g.arenaX;
+    const ady = e.y - g.arenaY;
+    const d = Math.hypot(adx, ady);
+    const max = g.arenaR - e.radius;
+    if (d > max) {
+      e.x = g.arenaX + (adx / d) * max;
+      e.y = g.arenaY + (ady / d) * max;
+    }
+  } else if (dist > g.viewR + 200) {
     e.vx = nx * spd * 2.5;
     e.vy = ny * spd * 2.5;
   }
@@ -308,6 +540,7 @@ export function updateEnemyBullets(g: Game, dt: number): void {
     }
     if (!b.grazed && d2 < (b.radius + GRAZE_RADIUS) ** 2) {
       b.grazed = true;
+      g.runGraze++;
       g.chargeOverdrive(3.5);
       const p = g.particles.spawnOrRecycle();
       p.kind = ParticleKind.Spark;
@@ -323,12 +556,10 @@ export function updateEnemyBullets(g: Game, dt: number): void {
 export function updateSpawner(g: Game, dt: number): void {
   const t = g.time;
 
-  // advance wave phase
   while (g.waveIdx < WAVES.length - 1 && t >= WAVES[g.waveIdx + 1].t) g.waveIdx++;
   const wave = WAVES[g.waveIdx];
 
-  // boss scheduling
-  const bossAlive = findBoss(g);
+  let bossAlive = findBoss(g);
   if (!g.endless && g.bossIdx < BOSS_TIMES.length) {
     const next = BOSS_TIMES[g.bossIdx];
     if (g.bossWarnAt < 0 && t >= next.t - 3.5) {
@@ -341,6 +572,7 @@ export function updateSpawner(g: Game, dt: number): void {
       spawnBoss(g, next.kind, 1);
       g.bossIdx++;
       g.bossWarnAt = -1;
+      bossAlive = findBoss(g);
     }
   } else if (g.endless) {
     g.endlessBossTimer -= dt;
@@ -352,15 +584,16 @@ export function updateSpawner(g: Game, dt: number): void {
       spawnBoss(g, kind, Math.pow(1.6, g.endlessCycle + 1));
       g.endlessCycle++;
       g.endlessBossTimer = 150;
+      bossAlive = findBoss(g);
     }
   }
 
-  // boss bar
   if (bossAlive) {
     g.hooks.bossBar(BOSS_NAMES[bossAlive.kind], Math.max(0, bossAlive.hp / bossAlive.maxHp), true);
+  } else if (g.arenaActive) {
+    g.arenaActive = false; // boss died via burn tick etc.
   }
 
-  // regular spawns (thinned during boss fights)
   const interval = wave.interval * (bossAlive ? 2.6 : 1) * (g.endless ? Math.pow(0.93, g.endlessCycle) : 1);
   g.spawnTimer -= dt;
   if (g.spawnTimer <= 0) {
@@ -372,7 +605,6 @@ export function updateSpawner(g: Game, dt: number): void {
     }
   }
 
-  // elites
   if (t > 110 && !bossAlive) {
     g.eliteTimer -= dt;
     if (g.eliteTimer <= 0) {
@@ -381,11 +613,14 @@ export function updateSpawner(g: Game, dt: number): void {
     }
   }
 
-  // scripted events
   if (!g.endless && g.eventIdx < EVENTS.length && t >= EVENTS[g.eventIdx].t) {
     const ev = EVENTS[g.eventIdx];
     g.eventIdx++;
     if (!bossAlive) runEvent(g, ev.type);
+  }
+  // endless: periodic surprise events
+  if (g.endless && !bossAlive && Math.random() < dt / 45) {
+    runEvent(g, (['ring', 'stream', 'flock', 'worm'] as const)[randInt(0, 3)]);
   }
 }
 
@@ -404,13 +639,22 @@ function spawnAtRing(g: Game, kind: EnemyKind, hpMult: number): Enemy | null {
 
 function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
   const a = Math.random() * TAU;
-  const r = g.viewR + 120;
+  const r = Math.min(g.viewR * 0.8, 420);
+  // arena centers on the player; boss enters from the arena edge
+  g.arenaActive = true;
+  g.arenaX = g.px;
+  g.arenaY = g.py;
+  g.arenaR = Math.min(g.viewR * 1.02, 520);
   const e = g.spawnEnemyAt(kind, g.px + Math.cos(a) * r, g.py + Math.sin(a) * r, extraMult);
-  if (!e) return;
+  if (!e) {
+    g.arenaActive = false;
+    return;
+  }
   e.touchDamage = ENEMY_DEFS[kind].damage * damageScale(g.time);
-  e.spawnTimer = 0.8;
+  e.spawnTimer = 1.2;
   e.aiTimer = 2;
-  g.addTrauma(0.4);
+  g.hitStop = Math.max(g.hitStop, 0.18);
+  g.addTrauma(0.5);
 }
 
 function spawnElite(g: Game): void {
@@ -428,7 +672,32 @@ function spawnElite(g: Game): void {
   if (e.affix === Affix.Armored) e.hp = e.maxHp = e.maxHp * 1.3;
 }
 
-function runEvent(g: Game, type: 'ring' | 'stream'): void {
+function runEvent(g: Game, type: 'ring' | 'stream' | 'flock' | 'worm'): void {
+  if (type === 'worm') {
+    spawnWorm(g);
+    return;
+  }
+  if (type === 'flock') {
+    // a coordinated flock sweeping in from one side
+    const a = Math.random() * TAU;
+    const flockId = nextFlockId++;
+    for (let k = 0; k < 14; k++) {
+      const r = g.viewR + 80 + rand(0, 120);
+      const off = (Math.random() - 0.5) * 260;
+      const e = g.spawnEnemyAt(
+        EnemyKind.Flocker,
+        g.px + Math.cos(a) * r - Math.sin(a) * off,
+        g.py + Math.sin(a) * r + Math.cos(a) * off,
+        hpScale(g.time) * 0.9,
+      );
+      if (e) {
+        e.flockId = flockId;
+        e.spawnTimer = 0.6;
+      }
+    }
+    g.addTrauma(0.15);
+    return;
+  }
   if (type === 'ring') {
     const n = 24;
     const kind = g.time > 300 ? EnemyKind.Weaver : EnemyKind.Chaser;
@@ -439,7 +708,6 @@ function runEvent(g: Game, type: 'ring' | 'stream'): void {
       if (e) e.spawnTimer = 1.2;
     }
   } else {
-    // stream: a column of swarmers sweeping across
     const a = Math.random() * TAU;
     const perpX = -Math.sin(a);
     const perpY = Math.cos(a);
