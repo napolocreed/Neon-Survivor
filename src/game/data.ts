@@ -226,11 +226,11 @@ export const WAVES: WavePhase[] = [
   { t: 30, interval: 1.0, batch: 2, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 2] },
   { t: 70, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 3, 2] },
   { t: 115, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher], weights: [3, 3, 2, 1.5, 1.5] },
-  { t: 205, interval: 0.92, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter], weights: [3, 3, 2, 2, 2, 1.5] },
-  { t: 265, interval: 0.85, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 2.5, 2, 2, 1.5, 1.5] },
-  { t: 420, interval: 0.75, batch: 5, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
-  { t: 480, interval: 0.62, batch: 6, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3, 2.5, 2, 2.5] },
-  { t: 560, interval: 0.5, batch: 7, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3.5, 3, 2.5, 3] },
+  { t: 205, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter], weights: [3, 3, 2, 2, 2, 1.5] },
+  { t: 265, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 2.5, 2, 2, 1.5, 1.5] },
+  { t: 420, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
+  { t: 480, interval: 0.72, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3, 2.5, 2, 2.5] },
+  { t: 560, interval: 0.62, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3.5, 3, 2.5, 3] },
 ];
 
 export const BOSS_TIMES: { t: number; kind: EnemyKind }[] = [
@@ -252,7 +252,7 @@ export const EVENTS: { t: number; type: 'ring' | 'stream' }[] = [
 /** Global HP multiplier over time (applies to non-boss enemies). */
 export function hpScale(t: number): number {
   const m = t / 60;
-  return 1 + m * 0.3 + m * m * 0.042;
+  return 1 + m * 0.26 + m * m * 0.04;
 }
 
 export function damageScale(t: number): number {
