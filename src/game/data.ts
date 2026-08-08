@@ -201,7 +201,7 @@ export const ENEMY_DEFS: Record<number, EnemyDef> = {
   [EnemyKind.Splitter]: { hp: 55, speed: 68, radius: 20, damage: 12, xp: 4, kbResist: 0.5 },
   [EnemyKind.Mini]: { hp: 10, speed: 165, radius: 8, damage: 6, xp: 1, kbResist: 0 },
   [EnemyKind.Weaver]: { hp: 22, speed: 120, radius: 12, damage: 9, xp: 2, kbResist: 0.1 },
-  [EnemyKind.BossWarden]: { hp: 2100, speed: 55, radius: 52, damage: 22, xp: 60, kbResist: 1 },
+  [EnemyKind.BossWarden]: { hp: 1900, speed: 55, radius: 52, damage: 22, xp: 60, kbResist: 1 },
   [EnemyKind.BossSeraph]: { hp: 6800, speed: 62, radius: 56, damage: 26, xp: 100, kbResist: 1 },
   [EnemyKind.BossOmega]: { hp: 16000, speed: 70, radius: 64, damage: 32, xp: 200, kbResist: 1 },
 };

@@ -47,6 +47,7 @@ function makeHooks(): GameHooks {
     bossWarn: name => ui.toast(`⚠ ${name} INBOUND ⚠`, 'warn'),
     bossBar: (name, frac, visible) => ui.setBossBar(name, frac, visible),
     evolved: name => ui.toast(`★ ${name} ★`, 'evo'),
+    overdrive: () => ui.toast('⚡ OVERDRIVE ⚡', 'od'),
     hud: () => ui.updateHud(game!),
   };
 }

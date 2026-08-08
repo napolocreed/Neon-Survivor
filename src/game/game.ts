@@ -39,6 +39,7 @@ export interface GameHooks {
   bossWarn(name: string): void;
   bossBar(name: string, frac: number, visible: boolean): void;
   evolved(name: string): void;
+  overdrive(): void;
   hud(): void; // light per-frame HUD refresh
 }
 
@@ -666,6 +667,7 @@ export class Game {
       this.addTrauma(0.3);
       this.haptic(30);
       audio.overdrive();
+      this.hooks.overdrive();
     }
   }
 
