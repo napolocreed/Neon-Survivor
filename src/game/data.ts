@@ -365,19 +365,19 @@ export interface WavePhase {
 // as spectacle and pressure, not as unavoidable chip damage.
 export const WAVES: WavePhase[] = [
   { t: 0, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser], weights: [1] },
-  { t: 25, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 2] },
-  { t: 55, interval: 0.75, batch: 5, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 3, 2] },
-  { t: 90, interval: 0.7, batch: 6, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Dasher], weights: [3, 3, 2, 1.5] },
-  { t: 125, interval: 0.62, batch: 7, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 3, 2, 1.5, 1.5, 1.2] },
-  { t: 165, interval: 0.58, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 3, 2, 1.5, 1.5, 1.2, 1.5] },
-  { t: 210, interval: 0.55, batch: 9, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 3, 2, 2, 2, 1.5, 1.3] },
-  { t: 250, interval: 0.6, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 3, 2, 2, 2, 1.5, 1.3, 1] },
-  { t: 290, interval: 0.55, batch: 8, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1] },
-  { t: 330, interval: 0.55, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2] },
-  { t: 375, interval: 0.5, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2, 0.9] },
-  { t: 425, interval: 0.5, batch: 10, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
-  { t: 480, interval: 0.45, batch: 10, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Sapper, EnemyKind.Blinker, EnemyKind.Mender], weights: [3, 3, 3, 2.5, 2, 2.5, 1.3, 1.3, 1] },
-  { t: 540, interval: 0.45, batch: 11, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 3, 3.5, 3, 2.5, 3, 1.5, 1] },
+  { t: 25, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 4] },
+  { t: 55, interval: 0.75, batch: 5, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 5, 2] },
+  { t: 90, interval: 0.7, batch: 6, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Dasher], weights: [3, 5, 2, 1.2] },
+  { t: 125, interval: 0.62, batch: 7, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 5, 2, 0.7, 1.2, 1.0] },
+  { t: 165, interval: 0.58, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 5, 2, 0.7, 1.2, 1.0, 0.6] },
+  { t: 210, interval: 0.55, batch: 9, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 5, 2, 0.7, 1.2, 0.9, 0.5] },
+  { t: 250, interval: 0.6, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 5, 2, 0.7, 1.2, 0.9, 0.5, 0.35] },
+  { t: 290, interval: 0.55, batch: 8, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [5, 2.5, 0.8, 1.3, 1.0, 0.7, 0.35] },
+  { t: 330, interval: 0.55, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker], weights: [5, 2.5, 0.8, 1.3, 1.0, 0.7, 0.35, 0.6] },
+  { t: 375, interval: 0.5, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker, EnemyKind.Pylon], weights: [5, 2.5, 0.8, 1.3, 1.0, 0.7, 0.35, 0.6, 0.35] },
+  { t: 425, interval: 0.5, batch: 10, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 5, 2.5, 0.9, 1.3, 1.0, 0.8] },
+  { t: 480, interval: 0.45, batch: 10, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Sapper, EnemyKind.Blinker, EnemyKind.Mender], weights: [5, 2.5, 0.9, 1.3, 1.0, 0.8, 0.9, 0.6, 0.35] },
+  { t: 540, interval: 0.45, batch: 11, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Blinker, EnemyKind.Pylon], weights: [5, 2.5, 1.0, 1.4, 1.1, 0.9, 0.7, 0.35] },
 ];
 
 export const BOSS_SLOT_TIMES = [180, 390, 600];
@@ -619,7 +619,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 // fivefold, and a level-up every few seconds is noise, not a decision.
 export function xpForLevel(level: number): number {
   const n = Math.max(0, level - 2);
-  return Math.round(4 + n * 10 + Math.pow(n, 2.0) * 2.4);
+  return Math.round(4 + n * 8 + Math.pow(n, 2.0) * 1.7);
 }
 
 export const RARITY_COLORS = ['#9aa7c7', '#4df3ff', '#a06bff', '#ffd75e'];

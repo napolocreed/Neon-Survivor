@@ -587,6 +587,24 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  /**
+   * A near-black tint of the enemy's own colour, cached per colour. A flat
+   * `#0a0c18` interior looked sharp at twenty enemies, but a horde of two
+   * hundred read as a field of holes punched in the screen. Tinting the fill
+   * keeps the bodies reading as coloured mass while staying dark enough that
+   * the neon rim still carries the silhouette.
+   */
+  private tint(color: string): string {
+    let t = this.tints.get(color);
+    if (t) return t;
+    const n = parseInt(color.slice(1), 16);
+    const mix = (c: number, base: number): number => Math.round(base + (c - base) * 0.22);
+    t = `rgb(${mix((n >> 16) & 255, 8)},${mix((n >> 8) & 255, 10)},${mix(n & 255, 22)})`;
+    this.tints.set(color, t);
+    return t;
+  }
+  private tints = new Map<string, string>();
+
   private enemyColor(kind: EnemyKind, elite: boolean): string {
     if (elite) return COLORS.elite;
     switch (kind) {
@@ -693,7 +711,7 @@ export class Renderer {
         ctx.globalAlpha = 1;
       }
 
-      ctx.fillStyle = flash ? '#ffffff' : e.frozenTimer > 0 ? '#10283a' : '#0a0c18';
+      ctx.fillStyle = flash ? '#ffffff' : e.frozenTimer > 0 ? '#10283a' : this.tint(color);
       ctx.strokeStyle = flash ? '#ffffff' : color;
       ctx.lineWidth = boss ? 3 : 2;
       const r = e.radius;
