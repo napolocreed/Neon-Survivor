@@ -294,20 +294,24 @@ export interface EnemyDef {
 }
 
 export const ENEMY_DEFS: Record<number, EnemyDef> = {
-  [EnemyKind.Chaser]: { hp: 18, speed: 86, radius: 14, damage: 8, xp: 1, kbResist: 0 },
-  [EnemyKind.Swarm]: { hp: 8, speed: 148, radius: 9, damage: 5, xp: 1, kbResist: 0 },
-  [EnemyKind.Tank]: { hp: 110, speed: 44, radius: 26, damage: 16, xp: 5, kbResist: 0.85 },
-  [EnemyKind.Dasher]: { hp: 30, speed: 95, radius: 13, damage: 12, xp: 3, kbResist: 0.3 },
-  [EnemyKind.Spitter]: { hp: 26, speed: 70, radius: 14, damage: 8, xp: 3, kbResist: 0.2 },
-  [EnemyKind.Splitter]: { hp: 55, speed: 68, radius: 20, damage: 12, xp: 4, kbResist: 0.5 },
-  [EnemyKind.Mini]: { hp: 10, speed: 165, radius: 8, damage: 6, xp: 1, kbResist: 0 },
-  [EnemyKind.Weaver]: { hp: 22, speed: 120, radius: 12, damage: 9, xp: 2, kbResist: 0.1 },
-  [EnemyKind.Flocker]: { hp: 14, speed: 130, radius: 11, damage: 7, xp: 2, kbResist: 0 },
-  [EnemyKind.Sapper]: { hp: 20, speed: 132, radius: 12, damage: 4, xp: 2, kbResist: 0 },
-  [EnemyKind.Aegis]: { hp: 45, speed: 55, radius: 17, damage: 10, xp: 4, kbResist: 0.6 },
-  [EnemyKind.Mender]: { hp: 30, speed: 78, radius: 13, damage: 6, xp: 6, kbResist: 0.2 },
-  [EnemyKind.Blinker]: { hp: 26, speed: 92, radius: 12, damage: 11, xp: 3, kbResist: 0.3 },
-  [EnemyKind.Pylon]: { hp: 60, speed: 60, radius: 15, damage: 8, xp: 5, kbResist: 0.4 },
+  // Contact damage is deliberately modest: with a screen-filling horde the
+  // player is touching *something* almost continuously, so bodies are pressure,
+  // not the kill. Lethality lives in the readable threats — bullets, beams,
+  // sapper blasts, boss patterns — which you are meant to see and dodge.
+  [EnemyKind.Chaser]: { hp: 18, speed: 86, radius: 14, damage: 6, xp: 1, kbResist: 0 },
+  [EnemyKind.Swarm]: { hp: 8, speed: 148, radius: 9, damage: 3, xp: 1, kbResist: 0 },
+  [EnemyKind.Tank]: { hp: 110, speed: 44, radius: 26, damage: 13, xp: 5, kbResist: 0.85 },
+  [EnemyKind.Dasher]: { hp: 30, speed: 95, radius: 13, damage: 9, xp: 3, kbResist: 0.3 },
+  [EnemyKind.Spitter]: { hp: 26, speed: 70, radius: 14, damage: 6, xp: 3, kbResist: 0.2 },
+  [EnemyKind.Splitter]: { hp: 55, speed: 68, radius: 20, damage: 9, xp: 4, kbResist: 0.5 },
+  [EnemyKind.Mini]: { hp: 10, speed: 165, radius: 8, damage: 4, xp: 1, kbResist: 0 },
+  [EnemyKind.Weaver]: { hp: 22, speed: 120, radius: 12, damage: 6, xp: 2, kbResist: 0.1 },
+  [EnemyKind.Flocker]: { hp: 14, speed: 130, radius: 11, damage: 5, xp: 2, kbResist: 0 },
+  [EnemyKind.Sapper]: { hp: 20, speed: 132, radius: 12, damage: 3, xp: 2, kbResist: 0 },
+  [EnemyKind.Aegis]: { hp: 45, speed: 55, radius: 17, damage: 8, xp: 4, kbResist: 0.6 },
+  [EnemyKind.Mender]: { hp: 30, speed: 78, radius: 13, damage: 5, xp: 6, kbResist: 0.2 },
+  [EnemyKind.Blinker]: { hp: 26, speed: 92, radius: 12, damage: 8, xp: 3, kbResist: 0.3 },
+  [EnemyKind.Pylon]: { hp: 60, speed: 60, radius: 15, damage: 6, xp: 5, kbResist: 0.4 },
   [EnemyKind.BossWarden]: { hp: 1900, speed: 55, radius: 52, damage: 22, xp: 60, kbResist: 1 },
   [EnemyKind.BossSeraph]: { hp: 6800, speed: 62, radius: 56, damage: 26, xp: 100, kbResist: 1 },
   [EnemyKind.BossOmega]: { hp: 16000, speed: 70, radius: 64, damage: 32, xp: 200, kbResist: 1 },
@@ -354,20 +358,26 @@ export interface WavePhase {
   weights: number[];
 }
 
+// Spawn throughput ramps from 3/s to ~40/s across the run. The engine holds
+// 300+ entities at a flat 60 fps, so the horde is meant to *fill the screen* —
+// standing population climbs from ~15 to ~250. Contact damage cannot scale with
+// density (the player gets 0.8 s of i-frames per hit), so a thicker horde reads
+// as spectacle and pressure, not as unavoidable chip damage.
 export const WAVES: WavePhase[] = [
-  { t: 0, interval: 1.25, batch: 2, kinds: [EnemyKind.Chaser], weights: [1] },
-  { t: 30, interval: 1.0, batch: 2, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 2] },
-  { t: 70, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 3, 2] },
-  { t: 115, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 3, 2, 1.5, 1.5, 1.2] },
-  { t: 150, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 3, 2, 1.5, 1.5, 1.2, 1.5] },
-  { t: 205, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 3, 2, 2, 2, 1.5, 1.3] },
-  { t: 230, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 3, 2, 2, 2, 1.5, 1.3, 1] },
-  { t: 265, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1] },
-  { t: 300, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2] },
-  { t: 340, interval: 0.9, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2, 0.9] },
-  { t: 420, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
-  { t: 480, interval: 0.72, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Sapper, EnemyKind.Blinker, EnemyKind.Mender], weights: [3, 3, 3, 2.5, 2, 2.5, 1.3, 1.3, 1] },
-  { t: 560, interval: 0.62, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 3, 3.5, 3, 2.5, 3, 1.5, 1] },
+  { t: 0, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser], weights: [1] },
+  { t: 25, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 2] },
+  { t: 55, interval: 0.75, batch: 5, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 3, 2] },
+  { t: 90, interval: 0.7, batch: 6, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Dasher], weights: [3, 3, 2, 1.5] },
+  { t: 125, interval: 0.62, batch: 7, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 3, 2, 1.5, 1.5, 1.2] },
+  { t: 165, interval: 0.58, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 3, 2, 1.5, 1.5, 1.2, 1.5] },
+  { t: 210, interval: 0.55, batch: 9, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 3, 2, 2, 2, 1.5, 1.3] },
+  { t: 250, interval: 0.6, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 3, 2, 2, 2, 1.5, 1.3, 1] },
+  { t: 290, interval: 0.55, batch: 8, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1] },
+  { t: 330, interval: 0.55, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2] },
+  { t: 375, interval: 0.5, batch: 9, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2, 0.9] },
+  { t: 425, interval: 0.5, batch: 10, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
+  { t: 480, interval: 0.45, batch: 10, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Sapper, EnemyKind.Blinker, EnemyKind.Mender], weights: [3, 3, 3, 2.5, 2, 2.5, 1.3, 1.3, 1] },
+  { t: 540, interval: 0.45, batch: 11, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 3, 3.5, 3, 2.5, 3, 1.5, 1] },
 ];
 
 export const BOSS_SLOT_TIMES = [180, 390, 600];
@@ -392,9 +402,12 @@ export const EVENTS: { t: number; type: 'ring' | 'stream' | 'flock' | 'worm' }[]
   { t: 575, type: 'ring' },
 ];
 
+// Flatter than it was: with ~5x the bodies on screen, each one has to pop.
+// Total incoming pressure still climbs — it now climbs through count, which is
+// readable and dodgeable, instead of through per-enemy bulk, which is not.
 export function hpScale(t: number): number {
   const m = t / 60;
-  return 1 + m * 0.26 + m * m * 0.04;
+  return 1 + m * 0.19 + m * m * 0.026;
 }
 
 export function damageScale(t: number): number {
@@ -602,9 +615,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 // ------------------------------------------------------------------ leveling
 
 /** XP needed to go from (level-1) to level. */
+// Rescaled ~4x alongside the horde rewrite: kills per second went up roughly
+// fivefold, and a level-up every few seconds is noise, not a decision.
 export function xpForLevel(level: number): number {
   const n = Math.max(0, level - 2);
-  return Math.round(3 + n * 3.5 + Math.pow(n, 1.85) * 0.6);
+  return Math.round(4 + n * 10 + Math.pow(n, 2.0) * 2.4);
 }
 
 export const RARITY_COLORS = ['#9aa7c7', '#4df3ff', '#a06bff', '#ffd75e'];

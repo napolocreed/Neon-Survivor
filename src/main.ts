@@ -11,6 +11,7 @@ import { makeRng } from './core/math';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
+(window as unknown as { __renderer: Renderer }).__renderer = renderer; // perf probes
 const input = new Input(document.body);
 
 let game: Game | null = null;

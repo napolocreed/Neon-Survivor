@@ -2,7 +2,7 @@
 // palettes, parallax starfield, arena walls, worms, zones, screen shake.
 
 import { Game } from '../game/game';
-import { EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
+import { Enemy, EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
 import { COLORS, WEAPONS, SECTORS, SHIP_PATHS } from '../game/data';
 import { bladeGeometry, prismGeometry } from '../game/weapons';
 import { clamp, damp, TAU } from '../core/math';
@@ -43,10 +43,20 @@ export class Renderer {
   private dpr = 1;
   private shakeT = 0;
   private zoom = 1;
+  // Half-resolution bloom buffer. Enemy glows are soft radial blobs and there
+  // are hundreds of them — drawing them at full resolution was two thirds of
+  // the entire frame. At half res they cost a quarter of the fill and, being a
+  // blur already, are visually indistinguishable once upscaled.
+  private bloom = document.createElement('canvas');
+  private bctx: CanvasRenderingContext2D;
+  private frameZ = 1;
+  private frameCamX = 0;
+  private frameCamY = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false })!;
+    this.bctx = this.bloom.getContext('2d')!;
     for (let i = 0; i < 90; i++) {
       this.stars.push({
         x: Math.random() * 2000,
@@ -68,6 +78,8 @@ export class Renderer {
     this.canvas.height = Math.round(this.h * this.dpr);
     this.canvas.style.width = `${this.w}px`;
     this.canvas.style.height = `${this.h}px`;
+    this.bloom.width = Math.max(1, Math.round(this.w * this.dpr * 0.5));
+    this.bloom.height = Math.max(1, Math.round(this.h * this.dpr * 0.5));
   }
 
   viewRadius(): number {
@@ -88,6 +100,18 @@ export class Renderer {
     c.fillRect(0, 0, 64, 64);
     this.glows.set(color, g);
     return g;
+  }
+
+  private cullX0 = 0;
+  private cullX1 = 0;
+  private cullY0 = 0;
+  private cullY1 = 0;
+  /** Reused per frame so the visible-enemy pass allocates nothing. */
+  private visible: Enemy[] = [];
+
+  private onScreen(x: number, y: number, pad: number): boolean {
+    return x > this.cullX0 - pad && x < this.cullX1 + pad
+      && y > this.cullY0 - pad && y < this.cullY1 + pad;
   }
 
   private drawGlow(x: number, y: number, size: number, color: string, alpha: number): void {
@@ -197,6 +221,21 @@ export class Renderer {
 
     const camX = g.camX - w / 2 + shakeX;
     const camY = g.camY - h / 2 + shakeY;
+
+    // World-space viewport bounds, refreshed once per frame. The horde spawns
+    // on a ring well outside the screen, so at high density a large share of
+    // entities are off-camera — they must not reach the draw path at all.
+    // The zoom scales about the screen centre, so the visible half-extent is
+    // (w/2)/zoom, not w/2.
+    this.frameZ = this.zoom * punch;
+    this.frameCamX = camX;
+    this.frameCamY = camY;
+
+    const invZ = 1 / (this.zoom * punch);
+    this.cullX0 = camX + w / 2 - (w / 2) * invZ - 80;
+    this.cullX1 = camX + w / 2 + (w / 2) * invZ + 80;
+    this.cullY0 = camY + h / 2 - (h / 2) * invZ - 80;
+    this.cullY1 = camY + h / 2 + (h / 2) * invZ + 80;
 
     this.drawBackground(g, camX, camY, time, sector);
 
@@ -570,33 +609,74 @@ export class Renderer {
 
   private drawEnemies(g: Game, time: number): void {
     const ctx = this.ctx;
+
+    // Pass 0 — cull to the viewport and draw the spawn telegraphs. Everything
+    // off-camera is dropped here and never touches the expensive passes.
+    const vis = this.visible;
+    vis.length = 0;
+    ctx.setLineDash([4, 6]);
+    ctx.lineWidth = 1.5;
     for (let i = 0; i < g.enemies.count; i++) {
       const e = g.enemies.items[i];
+      if (!this.onScreen(e.x, e.y, e.radius * 3)) continue;
+      if (e.spawnTimer > 0) {
+        const t = 1 - clamp(e.spawnTimer / 0.6, 0, 1);
+        ctx.strokeStyle = e.frozenTimer > 0 ? '#7ad7ff'
+          : e.kind >= EnemyKind.BossWarden ? '#ff3860' : this.enemyColor(e.kind, e.elite);
+        ctx.globalAlpha = 0.5 * t;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius * (0.5 + t * 0.8), 0, TAU);
+        ctx.stroke();
+        continue;
+      }
+      vis.push(e);
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // Pass 1 — every glow in one additive batch, into the half-res bloom
+    // buffer. Interleaving these with the bodies cost two composite-mode
+    // switches per enemy and full-resolution fill; this is two switches per
+    // frame at a quarter of the pixels, and reads as one unified bloom layer.
+    const b = this.bctx;
+    const z = this.frameZ;
+    const s = this.dpr * 0.5;
+    b.setTransform(1, 0, 0, 1, 0, 0);
+    b.clearRect(0, 0, this.bloom.width, this.bloom.height);
+    b.setTransform(s * z, 0, 0, s * z,
+      s * (this.w / 2 - (this.frameCamX + this.w / 2) * z),
+      s * (this.h / 2 - (this.frameCamY + this.h / 2) * z));
+    b.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < vis.length; i++) {
+      const e = vis[i];
+      const boss = e.kind >= EnemyKind.BossWarden;
+      const color = e.frozenTimer > 0 ? '#7ad7ff' : boss ? '#ff3860' : this.enemyColor(e.kind, e.elite);
+      const size = e.radius * (boss ? 2.6 : 1.9);
+      b.globalAlpha = boss ? 0.5 : 0.32;
+      b.drawImage(this.glow(color), e.x - size, e.y - size, size * 2, size * 2);
+    }
+    b.globalAlpha = 1;
+
+    // composite the bloom back in screen space, then restore the world transform
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(this.bloom, 0, 0, this.w, this.h);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+
+    // Pass 2 — bodies. Past a crowded screen the small trash drops its
+    // secondary flourishes; the silhouettes and telegraphs always survive.
+    const detailAll = vis.length < 110;
+    for (let i = 0; i < vis.length; i++) {
+      const e = vis[i];
       const boss = e.kind >= EnemyKind.BossWarden;
       let color = boss ? '#ff3860' : this.enemyColor(e.kind, e.elite);
       if (e.frozenTimer > 0) color = '#7ad7ff';
 
-      if (e.spawnTimer > 0) {
-        const t = 1 - clamp(e.spawnTimer / 0.6, 0, 1);
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.5 * t;
-        ctx.setLineDash([4, 6]);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.radius * (0.5 + t * 0.8), 0, TAU);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
       const flash = e.flashTimer > 0;
       ctx.save();
       ctx.translate(e.x, e.y);
-
-      ctx.globalCompositeOperation = 'lighter';
-      this.drawGlow(0, 0, e.radius * (boss ? 2.6 : 1.9), color, boss ? 0.5 : 0.32);
-      ctx.globalCompositeOperation = 'source-over';
 
       if (e.elite) {
         const affixColor =
@@ -740,7 +820,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
 
       // living details & readable telegraphs
-      if (!flash && e.frozenTimer <= 0) {
+      if (!flash && e.frozenTimer <= 0 && (detailAll || boss || e.elite || e.radius > 16)) {
         switch (e.kind) {
           case EnemyKind.Chaser: {
             const pulse = 0.5 + 0.5 * Math.sin(time * 5 + e.seed * 3);

@@ -85,22 +85,22 @@ function makeEnemy(): Enemy {
 
 export class Game {
   // pools
-  enemies = new Pool<Enemy>(makeEnemy, 320);
+  enemies = new Pool<Enemy>(makeEnemy, 380);
   projectiles = new Pool<Projectile>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, radius: 4, damage: 0, pierce: 0, life: 0, kind: 0,
     seed: 0, homing: 0, targetIdx: -1, hitCd: 0, phase: 0, knockback: 0,
-  }), 300);
+  }), 420);
   enemyBullets = new Pool<EnemyBullet>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, radius: 6, damage: 0, life: 0, grazed: false, hue: 0,
   }), 400);
   pickups = new Pool<Pickup>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, kind: PickupKind.Gem, value: 1, magnetized: false, life: -1, seed: 0,
-  }), 420);
+  }), 760);
   particles = new Pool<Particle>(() => ({
     x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 2,
     kind: ParticleKind.Spark, color: 0, rot: 0, vrot: 0,
-  }), 700);
-  dmgNumbers = new Pool<DamageNumber>(() => ({ x: 0, y: 0, vy: 0, value: 0, life: 0, crit: false }), 60);
+  }), 1100);
+  dmgNumbers = new Pool<DamageNumber>(() => ({ x: 0, y: 0, vy: 0, value: 0, life: 0, crit: false }), 90);
   grid = new SpatialHash<Enemy>(72);
 
   beams: Beam[] = [];
@@ -186,6 +186,8 @@ export class Game {
   runDashKills = 0;
   /** Damage dealt per source: WeaponId 0-15, 100 dash, 101 ability, 102 other. */
   damageBySource = new Map<number, number>();
+  hurtBySource = new Map<string, number>();
+  lastHurtBy = '';
   private scoreBanked = 0;
   private pickedBanked = 0;
   private timeBanked = 0;
@@ -636,7 +638,11 @@ export class Game {
     // the window tightens as the chain grows — deep chains demand mastery
     this.chainWindow = Math.max(0.72, 1.35 - Math.max(0, this.chain - 10) * 0.035)
       + (this.hasCurse('momentum') ? 0.4 : 0);
-    this.hp = Math.min(this.stats.maxHp, this.hp + 1); // aggression heals
+    // Aggression heals, and it heals *more* the deeper the chain runs. A flat
+    // 1 HP per link could never pay for the contact damage of diving in, which
+    // made the game's own thesis a losing strategy. Deep chains are now a real
+    // sustain engine — that is the risk/reward the whole design rests on.
+    this.hp = Math.min(this.stats.maxHp, this.hp + Math.min(8, 1 + Math.floor(this.chain / 4)));
     this.chargeOverdrive(2 + this.chain * 0.25);
     this.score += this.chain * 25;
     this.dashRecharge = Math.max(0.2, this.dashRecharge - 0.7);
@@ -1210,7 +1216,7 @@ export class Game {
         }
       }
       if (dist2(e.x, e.y, this.px, this.py) < (r + this.playerRadius) ** 2) {
-        this.hurtPlayer(5);
+        this.hurtPlayer(5, 'volatile');
       }
       const orb = this.particles.spawnOrRecycle();
       orb.kind = ParticleKind.Orb; orb.x = e.x; orb.y = e.y; orb.vx = 0; orb.vy = 0;
@@ -1481,7 +1487,7 @@ export class Game {
           if (this.reflectTimer > 0) {
             this.dealDamage(e, 60 * this.dmgMult(), { canCrit: false });
           } else {
-            this.hurtPlayer(e.touchDamage);
+            this.hurtPlayer(e.touchDamage, e.kind >= 100 ? 'boss-touch' : 'touch');
           }
           const inv = 1 / (d || 1);
           e.kbx += (e.x - this.px) * inv * 180 * (1 - e.kbResist);
@@ -1517,10 +1523,14 @@ export class Game {
     }
   }
 
-  hurtPlayer(raw: number): void {
+  hurtPlayer(raw: number, src = 'touch'): void {
     if (this.invuln > 0 || this.dashTimer > 0 || this.god) return;
     const dmg = Math.max(1, Math.round((raw - this.stats.armor) * this.stats.damageTakenMult));
     this.hp -= dmg;
+    // Instrumentation: which threats actually drain the player, and what
+    // landed the killing blow. Read by the headless balance bench.
+    this.hurtBySource.set(src, (this.hurtBySource.get(src) ?? 0) + dmg);
+    this.lastHurtBy = src;
     this.invuln = 0.8;
     this.combo = Math.floor(this.combo / 2);
     this.overdrive = Math.max(0, this.overdrive - 12);

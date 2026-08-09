@@ -323,7 +323,7 @@ export function updateEnemies(g: Game, dt: number): void {
               const along = relX * e.aimX + relY * e.aimY;
               const perp = Math.abs(-relX * e.aimY + relY * e.aimX);
               if (along > 0 && along < len && perp < 14 + g.playerRadius) {
-                g.hurtPlayer(Math.round(16 * damageScale(g.time)));
+                g.hurtPlayer(Math.round(16 * damageScale(g.time)), 'sniper-beam');
               }
               g.beams.push({
                 x: e.x, y: e.y, angle: Math.atan2(e.aimY, e.aimX), len,
@@ -412,7 +412,7 @@ function sapperBlast(g: Game, e: Enemy): void {
   const r = 92;
   // hurts the player…
   if ((e.x - g.px) ** 2 + (e.y - g.py) ** 2 < (r + g.playerRadius) ** 2) {
-    g.hurtPlayer(Math.round(24 * damageScale(g.time)));
+    g.hurtPlayer(Math.round(24 * damageScale(g.time)), 'sapper');
   }
   // …but shreds the horde ×3 — bait it!
   const near = g.grid.query(e.x, e.y, r + 30);
@@ -507,7 +507,7 @@ export function updateWorms(g: Game, dt: number): void {
         const d2 = (seg.x - g.px) ** 2 + (seg.y - g.py) ** 2;
         if (d2 < (w.radius + g.playerRadius) ** 2) {
           w.hitCd = 0.75;
-          g.hurtPlayer(w.damage);
+          g.hurtPlayer(w.damage, 'worm');
           break;
         }
         if (d2 < (w.radius + GRAZE_RADIUS) ** 2 && w.hitCd <= 0 && Math.random() < dt * 3) {
@@ -856,7 +856,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
             const along = relX * cos + relY * sin;
             if (along > e.radius && along < beamLen) {
               if (Math.abs(-relX * sin + relY * cos) < 10 + g.playerRadius) {
-                g.hurtPlayer(Math.round(dmg * 0.9));
+                g.hurtPlayer(Math.round(dmg * 0.9), 'boss-beam');
                 break;
               }
             }
@@ -916,7 +916,7 @@ export function updateEnemyBullets(g: Game, dt: number): void {
     }
     const hitR = b.radius + g.playerRadius;
     if (d2 < hitR * hitR) {
-      g.hurtPlayer(b.damage);
+      g.hurtPlayer(b.damage, 'bullet');
       g.enemyBullets.releaseAt(i);
       continue;
     }
@@ -935,6 +935,9 @@ export function updateEnemyBullets(g: Game, dt: number): void {
 }
 
 // ------------------------------------------------------------ director
+
+/** Standing-population ceiling the director aims for. Well under the pool. */
+const POP_SOFT_CAP = 300;
 
 export function updateSpawner(g: Game, dt: number): void {
   const t = g.time;
@@ -988,7 +991,15 @@ export function updateSpawner(g: Game, dt: number): void {
   g.spawnTimer -= dt;
   if (g.spawnTimer <= 0) {
     g.spawnTimer = interval;
-    const batch = Math.round((wave.batch + (g.endless ? g.endlessCycle : 0)) * (mut === 'tidal' ? 3.5 : 1));
+    let batch = Math.round((wave.batch + (g.endless ? g.endlessCycle : 0)) * (mut === 'tidal' ? 3.5 : 1));
+    // Population governor. The pool must never saturate: a full pool makes
+    // spawns fail silently, so the director loses control of pacing and the
+    // difficulty flatlines at exactly the moment the frame budget is worst.
+    // Taper toward the soft cap instead of slamming into the hard one.
+    const pop = g.enemies.count;
+    if (pop >= POP_SOFT_CAP) batch = 0;
+    else if (pop > POP_SOFT_CAP * 0.75) batch = Math.max(1, Math.round(batch * 0.4));
+    else if (pop > POP_SOFT_CAP * 0.55) batch = Math.max(1, Math.round(batch * 0.7));
     let hpMult = hpScale(t);
     if (mut === 'swarm') hpMult *= 0.8;
     if (mut === 'cryo') hpMult *= 1.15;
