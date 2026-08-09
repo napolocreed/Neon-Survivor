@@ -8,6 +8,10 @@ import { bladeGeometry, prismGeometry } from '../game/weapons';
 import { clamp, damp, TAU } from '../core/math';
 import { profile } from '../meta/save';
 
+// Captured before any seeded-run override: cosmetic randomness must never
+// consume from the daily challenge's deterministic stream.
+const nativeRandom = Math.random.bind(Math);
+
 // particle palette (indexed by particle.color)
 const PALETTE = [
   '#4df3ff', '#ff3860', '#ffb02e', '#ffd75e', '#ff9f45',
@@ -239,9 +243,9 @@ export class Renderer {
       ['rgba(230,80,60,0.5)', 'rgba(255,150,70,0.32)'],
     ][sectorIdx] ?? ['rgba(60,90,220,0.5)', 'rgba(140,80,255,0.3)'];
     for (let i = 0; i < 5; i++) {
-      const x = 40 + Math.random() * 176;
-      const y = 40 + Math.random() * 176;
-      const r = 40 + Math.random() * 70;
+      const x = 40 + nativeRandom() * 176;
+      const y = 40 + nativeRandom() * 176;
+      const r = 40 + nativeRandom() * 70;
       const grad = c.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, hues[i % 2]);
       grad.addColorStop(1, 'transparent');
@@ -1406,7 +1410,7 @@ export class Renderer {
       const segs = 5;
       for (let s = 1; s < segs; s++) {
         const t = s / segs;
-        const off = (Math.random() - 0.5) * 18;
+        const off = (nativeRandom() - 0.5) * 18;
         ctx.lineTo(b.x1 + dx * t - dy * off * 0.02, b.y1 + dy * t + dx * off * 0.02);
       }
       ctx.lineTo(b.x2, b.y2);

@@ -5,7 +5,7 @@
 import { Pool } from '../core/pool';
 import { SpatialHash } from '../core/spatial';
 import { Input } from '../core/input';
-import { damp, dist2, rand, TAU, pickWeighted, clamp } from '../core/math';
+import { damp, dist2, rand, TAU, pickWeighted, clamp, makeRng } from '../core/math';
 import { audio } from '../audio/audio';
 import {
   Enemy, Projectile, EnemyBullet, Pickup, Particle, DamageNumber,
@@ -16,8 +16,9 @@ import {
 import {
   WEAPONS, PASSIVES, PILOTS, PilotDef, xpForLevel, COLORS, ENEMY_DEFS,
   CURSES, SECTORS, ACHIEVEMENTS, damageScale, MUTATORS, MutatorDef, REACTIONS, hpScale,
+  rollMutator, mutatorSeed,
 } from './data';
-import { profile, metaBonuses, save } from '../meta/save';
+import { profile, metaBonuses, save, discoverWeapon, discoverEnemy, recordDaily, dailyKey, dailySeed } from '../meta/save';
 import { BOSS_POOLS } from './data';
 import { fireWeapons, updateProjectiles, updateBlades, updateTurrets, updatePrism, flakDashVolley, prismOnGraze, sigilDetonate, sigilAmp } from './weapons';
 import { updateEnemies, updateSpawner, updateEnemyBullets, updateWorms, wormAt, hitWorm } from './enemies';
@@ -174,6 +175,7 @@ export class Game {
   rerollsLeft = 1;
   banishesLeft = 1;
   endless = false;
+  daily = false;
   god = false;
   curses: string[] = [];
   runGraze = 0;
@@ -224,27 +226,20 @@ export class Game {
   hooks: GameHooks;
   private offers: CardOffer[] = [];
 
-  constructor(input: Input, hooks: GameHooks, pilot: PilotDef, opts: { startTime?: number; god?: boolean } = {}) {
+  constructor(input: Input, hooks: GameHooks, pilot: PilotDef, opts: { startTime?: number; god?: boolean; daily?: boolean } = {}) {
     this.input = input;
     this.hooks = hooks;
     this.pilot = pilot;
     this.god = !!opts.god;
+    this.daily = !!opts.daily;
     this.time = opts.startTime ?? 0;
     const m = metaBonuses();
     this.rerollsLeft = 1 + m.rerolls;
     this.banishesLeft = 1 + m.banishes;
     this.reviveAvailable = m.revive;
-    // roll this run's Grid Protocol (mutator)
-    {
-      const weights = MUTATORS.map(x => x.weight);
-      let total = 0;
-      for (const w of weights) total += w;
-      let r = Math.random() * total;
-      for (let i = 0; i < MUTATORS.length; i++) {
-        r -= weights[i];
-        if (r <= 0) { this.mutator = MUTATORS[i]; break; }
-      }
-    }
+    // Roll this run's Grid Protocol. Daily runs draw from a dedicated
+    // sub-seed so the menu can preview it without tracking stream position.
+    this.mutator = rollMutator(this.daily ? makeRng(mutatorSeed(dailySeed())) : Math.random);
     if (pilot.ability === 'anomaly') {
       // GLITCH: two random distinct weapons
       const a = (Math.random() * WEAPONS.length) | 0;
@@ -1104,6 +1099,7 @@ export class Game {
     if (idx < 0 || idx >= this.enemies.count) return;
 
     this.kills++;
+    discoverEnemy(e.kind);
     profile.records.totalKills++;
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
@@ -1786,6 +1782,7 @@ export class Game {
   }
 
   addWeapon(id: WeaponId): void {
+    discoverWeapon(id);
     this.weapons.push({ id, level: 1, cooldown: 0.4, evolved: false, angle: 0, burst: 0, burstTimer: 0 });
     if (id === WeaponId.Turret) this.turrets.push({ x: this.px + 40, y: this.py - 40, cooldown: 0.5, angle: 0 });
   }
@@ -1932,6 +1929,12 @@ export class Game {
     if (victory) {
       profile.records.victories++;
       profile.endlessUnlocked = true;
+    }
+    if (this.daily) {
+      recordDaily({
+        date: dailyKey(), score: Math.round(this.score), time: Math.floor(this.time),
+        kills: this.kills, rank, pilot: this.pilot.name,
+      });
     }
     this.checkAchievements();
     if (victory) {

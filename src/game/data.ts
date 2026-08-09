@@ -258,6 +258,23 @@ export const MUTATORS: MutatorDef[] = [
   { id: 'eclipse', name: 'ECLIPSE GRID', desc: 'Vision limited to your halo · +25% XP', weight: 0.8 },
 ];
 
+/** Weighted protocol draw from an explicit RNG (decoupled from Math.random). */
+export function rollMutator(rnd: () => number): MutatorDef {
+  let total = 0;
+  for (const m of MUTATORS) total += m.weight;
+  let r = rnd() * total;
+  for (const m of MUTATORS) {
+    r -= m.weight;
+    if (r <= 0) return m;
+  }
+  return MUTATORS[0];
+}
+
+/** Daily runs derive their protocol from a dedicated sub-seed. */
+export function mutatorSeed(seed: number): number {
+  return (seed ^ 0x9e3779b9) >>> 0;
+}
+
 export const REACTIONS = {
   thermal: 'THERMAL SHOCK',
   superconduct: 'SUPERCONDUCT',

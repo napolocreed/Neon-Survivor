@@ -6,7 +6,8 @@ import { Renderer } from './render/render';
 import { Game, GameHooks } from './game/game';
 import { UI } from './ui/ui';
 import { audio } from './audio/audio';
-import { profile, save, currentPilot } from './meta/save';
+import { profile, save, currentPilot, dailySeed } from './meta/save';
+import { makeRng } from './core/math';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
@@ -22,9 +23,15 @@ const startTime = Number(params.get('t') ?? 0) || 0;
 const god = params.has('god');
 const speed = Number(params.get('speed') ?? 1) || 1;
 
+// Daily runs replace Math.random with a date-seeded stream so every player
+// gets the same protocol, boss rotation and spawns. Cosmetic randomness in
+// the renderer/audio captured the native fn at module load, so it never
+// consumes from this stream.
+const nativeRandom = Math.random.bind(Math);
+
 const ui = new UI({
-  startRun: () => startRun(),
-  restartRun: () => startRun(),
+  startRun: (daily = false) => startRun(daily),
+  restartRun: () => startRun(false),
   quitToTitle: () => {
     endRun();
     ui.showTitle();
@@ -61,12 +68,13 @@ function makeHooks(): GameHooks {
   };
 }
 
-function startRun(): void {
+function startRun(daily = false): void {
   audio.unlock();
   audio.startMusic();
   ui.hideScreens();
   input.reset();
-  game = new Game(input, makeHooks(), currentPilot(), { startTime, god });
+  Math.random = daily ? makeRng(dailySeed()) : nativeRandom;
+  game = new Game(input, makeHooks(), currentPilot(), { startTime, god, daily });
   (window as unknown as { __game: Game }).__game = game; // debug/bot hook
   renderer.resize();
   game.viewR = renderer.viewRadius();
@@ -78,7 +86,7 @@ function startRun(): void {
   // intro: warp-in flash + sector & protocol banners
   game.screenFlash = 1;
   game.invuln = 1.2;
-  ui.sectorToast('SECTOR 01', 'THE GRID');
+  ui.sectorToast(game.daily ? '⬖ DAILY CHALLENGE' : 'SECTOR 01', game.daily ? 'ONE SEED · ONE SHOT' : 'THE GRID');
   const mut = game.mutator;
   if (mut.id !== 'null') {
     setTimeout(() => {
@@ -96,6 +104,7 @@ function startRun(): void {
 }
 
 function endRun(): void {
+  Math.random = nativeRandom;
   game = null;
   ui.clearHud();
   ui.hideScreens();

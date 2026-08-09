@@ -3,6 +3,10 @@
 
 import { clamp } from '../core/math';
 
+// Captured before any seeded-run override — audio jitter is cosmetic and
+// must not consume from the daily challenge's deterministic stream.
+const nativeRandom = Math.random.bind(Math);
+
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -61,7 +65,7 @@ class AudioEngine {
     const len = this.ctx.sampleRate;
     this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const data = this.noiseBuf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < len; i++) data[i] = nativeRandom() * 2 - 1;
   }
 
   get ready(): boolean {
@@ -131,7 +135,7 @@ class AudioEngine {
     const now = this.ctx.currentTime;
     if (now - this.lastHit < 0.04) return;
     this.lastHit = now;
-    this.tone(200 + Math.random() * 80, 0.05, 'square', 0.05, { slideTo: 100 });
+    this.tone(200 + nativeRandom() * 80, 0.05, 'square', 0.05, { slideTo: 100 });
   }
 
   kill(combo: number): void {

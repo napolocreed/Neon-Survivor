@@ -24,6 +24,15 @@ export interface Records {
   pilotBest?: Record<string, number>;
 }
 
+export interface DailyResult {
+  date: string; // YYYY-MM-DD (UTC)
+  score: number;
+  time: number;
+  kills: number;
+  rank: string;
+  pilot: string;
+}
+
 export interface Settings {
   sfx: boolean;
   music: boolean;
@@ -41,6 +50,9 @@ export interface Profile {
   achievements: Record<string, boolean>;
   evolutionsSeen: string[];
   reactionsSeen: string[];
+  weaponsSeen: number[];
+  enemiesSeen: number[];
+  daily: DailyResult[];
   endlessUnlocked: boolean;
 }
 
@@ -62,6 +74,9 @@ function defaultProfile(): Profile {
     achievements: {},
     evolutionsSeen: [],
     reactionsSeen: [],
+    weaponsSeen: [],
+    enemiesSeen: [],
+    daily: [],
     endlessUnlocked: false,
   };
 }
@@ -79,6 +94,9 @@ function load(): Profile {
     p.achievements = p.achievements ?? {};
     p.evolutionsSeen = p.evolutionsSeen ?? [];
     p.reactionsSeen = p.reactionsSeen ?? [];
+    p.weaponsSeen = p.weaponsSeen ?? [];
+    p.enemiesSeen = p.enemiesSeen ?? [];
+    p.daily = p.daily ?? [];
     if (!p.pilots.includes('vector')) p.pilots.push('vector');
     if (!p.pilots.includes(p.selectedPilot)) p.selectedPilot = 'vector';
     return p;
@@ -126,4 +144,49 @@ export function metaBonuses(): {
 
 export function currentPilot() {
   return PILOTS.find(p => p.id === profile.selectedPilot) ?? PILOTS[0];
+}
+
+
+// ------------------------------------------------------------ daily challenge
+
+/** UTC date key — everyone on Earth gets the same run on the same day. */
+export function dailyKey(now = new Date()): string {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Stable 32-bit seed derived from the date key. */
+export function dailySeed(key = dailyKey()): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+export function todaysDaily(): DailyResult | undefined {
+  const k = dailyKey();
+  return profile.daily.find(d => d.date === k);
+}
+
+export function recordDaily(r: DailyResult): void {
+  const existing = profile.daily.findIndex(d => d.date === r.date);
+  if (existing >= 0) profile.daily[existing] = r;
+  else profile.daily.unshift(r);
+  profile.daily = profile.daily.slice(0, 30);
+  save();
+}
+
+export function discoverWeapon(id: number): void {
+  if (!profile.weaponsSeen.includes(id)) {
+    profile.weaponsSeen.push(id);
+    save();
+  }
+}
+
+export function discoverEnemy(kind: number): void {
+  if (!profile.enemiesSeen.includes(kind)) {
+    profile.enemiesSeen.push(kind);
+    save();
+  }
 }

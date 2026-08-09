@@ -6,15 +6,22 @@ import { CardOffer, WeaponId, CurseDef } from '../game/types';
 import {
   WEAPONS, PASSIVES, PILOTS, MATRIX, MATRIX_BRANCHES, matrixCost,
   ACHIEVEMENTS, CURSES, RARITY_COLORS, RARITY_NAMES, SHIP_PATHS,
+  REACTIONS, ENEMY_DEFS, BOSS_NAMES, rollMutator, mutatorSeed,
 } from '../game/data';
-import { profile, save, resetProfile, metaRank } from '../meta/save';
+import { EnemyKind } from '../game/types';
+import { profile, save, resetProfile, metaRank, dailyKey, dailySeed, todaysDaily } from '../meta/save';
 import { audio } from '../audio/audio';
-import { fmtTime } from '../core/math';
+import { fmtTime, makeRng } from '../core/math';
 
 export interface UIHandlers {
-  startRun(): void;
+  startRun(daily?: boolean): void;
   restartRun(): void;
   quitToTitle(): void;
+}
+
+/** The exact protocol today's seed will roll — same draw the Game performs. */
+function todaysProtocol(): { name: string; desc: string } {
+  return rollMutator(makeRng(mutatorSeed(dailySeed())));
 }
 
 export class UI {
@@ -155,6 +162,13 @@ export class UI {
       : 'DRAG TO MOVE · TAP TO DASH';
     const achDone = Object.keys(profile.achievements).length;
     const pilot = PILOTS.find(p => p.id === profile.selectedPilot) ?? PILOTS[0];
+    const today = todaysDaily();
+    const done = !!today;
+    const dailyLabel = today
+      ? `today: rank ${today.rank} · ${fmtTime(today.time)}`
+      : `${todaysProtocol().name} · not attempted`;
+    const codexTotal = WEAPONS.length + Object.keys(ENEMY_DEFS).length + 4;
+    const codexFound = profile.weaponsSeen.length + profile.enemiesSeen.length + profile.reactionsSeen.length;
     const root = this.show(`
       <div class="screen">
         <div class="title-logo">
@@ -171,6 +185,8 @@ export class UI {
           <button class="btn" data-a="pilots">PILOTS<small>${profile.pilots.length}/${PILOTS.length} ships unlocked</small></button>
           <button class="btn" data-a="matrix">NANITE MATRIX<small>permanent upgrades</small></button>
           <button class="btn" data-a="ach">ACHIEVEMENTS<small>${achDone}/${ACHIEVEMENTS.length} unlocked</small></button>
+          <button class="btn ${done ? '' : 'gold'}" data-a="daily">DAILY CHALLENGE<small>${dailyLabel}</small></button>
+          <button class="btn" data-a="codex">CODEX<small>${codexFound}/${codexTotal} entries decoded</small></button>
           <button class="btn" data-a="stats">PILOT RECORD<small>career statistics</small></button>
           <button class="btn" data-a="settings">SETTINGS</button>
         </div>
@@ -181,6 +197,8 @@ export class UI {
     this.click(root, '[data-a="pilots"]', () => { audio.ui(); this.showPilots(); });
     this.click(root, '[data-a="matrix"]', () => { audio.ui(); this.showMatrix(); });
     this.click(root, '[data-a="ach"]', () => { audio.ui(); this.showAchievements(); });
+    this.click(root, '[data-a="daily"]', () => { audio.ui(); this.showDaily(); });
+    this.click(root, '[data-a="codex"]', () => { audio.ui(); this.showCodex(); });
     this.click(root, '[data-a="stats"]', () => { audio.ui(); this.showStats(); });
     this.click(root, '[data-a="settings"]', () => { audio.ui(); this.showSettings(); });
   }
@@ -331,6 +349,144 @@ export class UI {
         return;
       }
       this.showPilots();
+    });
+  }
+
+  // ---------------------------------------------------------------- daily
+
+  showDaily(): void {
+    const today = todaysDaily();
+    const proto = todaysProtocol();
+    const history = profile.daily.slice(0, 7).map(d => `
+      <div class="stat-row">
+        <span>${d.date.slice(5)} · ${d.pilot}</span>
+        <b><span class="rank-inline rank-${d.rank.replace('+', 'p')}">${d.rank}</span> ${fmtTime(d.time)}</b>
+      </div>`).join('') || '<div class="stat-row"><span>No attempts logged yet</span></div>';
+    const root = this.show(`
+      <div class="screen">
+        <div class="back-row">
+          <button class="back-btn" data-a="back">‹ BACK</button>
+          <span class="shards-chip">◆ ${profile.shards}</span>
+        </div>
+        <div class="screen-title">DAILY CHALLENGE</div>
+        <div class="screen-sub">One seed. One shot. Everyone runs the same grid.</div>
+        <div class="daily-card">
+          <div class="daily-date">${dailyKey()}</div>
+          <div class="daily-proto">▦ ${proto.name}</div>
+          <div class="daily-proto-desc">${proto.desc}</div>
+          <div class="daily-seed">SEED ${dailySeed().toString(16).toUpperCase().padStart(8, '0')}</div>
+        </div>
+        ${today
+          ? `<div class="daily-result">
+               <div class="rank-badge rank-${today.rank.replace('+', 'p')}">${today.rank}</div>
+               <div class="screen-sub" style="margin-top:10px">${fmtTime(today.time)} · ${today.kills} kills · ${today.score} pts</div>
+             </div>`
+          : ''}
+        <button class="btn ${today ? '' : 'primary'}" data-a="run">
+          ${today ? 'RUN IT AGAIN (unscored)' : 'ACCEPT THE CHALLENGE'}
+          <small>${today ? 'today is already logged' : `flying ${(PILOTS.find(p => p.id === profile.selectedPilot) ?? PILOTS[0]).name}`}</small>
+        </button>
+        <div class="stats-block" style="max-width:400px;width:100%;margin-top:16px">
+          <div class="stats-block-title">RECENT ATTEMPTS</div>
+          ${history}
+        </div>
+      </div>
+    `);
+    this.click(root, '[data-a="back"]', () => { audio.ui(); this.showTitle(); });
+    this.click(root, '[data-a="run"]', () => this.handlers.startRun(true));
+  }
+
+  // ---------------------------------------------------------------- codex
+
+  showCodex(): void {
+    const wRows = WEAPONS.map(w => {
+      const seen = profile.weaponsSeen.includes(w.id);
+      const evo = profile.evolutionsSeen.includes(w.evoName);
+      return `
+        <div class="codex-item ${seen ? '' : 'locked'}">
+          <div class="codex-dot" style="background:${seen ? w.color : 'transparent'};box-shadow:${seen ? `0 0 8px ${w.color}` : 'none'}"></div>
+          <div class="armory-info">
+            <div class="armory-name" style="color:${seen ? w.color : ''}">${seen ? w.name : '???'}</div>
+            <div class="armory-desc">${seen ? w.desc : 'Undiscovered weapon system'}</div>
+            ${seen ? `<div class="codex-evo ${evo ? 'found' : ''}">★ ${evo ? `${w.evoName} — ${w.evoDesc}` : `EVOLUTION LOCKED · pair with ${PASSIVES[w.pair].name}`}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+    const enemyName: Record<number, string> = {
+      [EnemyKind.Chaser]: 'Chaser', [EnemyKind.Swarm]: 'Swarmer', [EnemyKind.Tank]: 'Bulwark Drone',
+      [EnemyKind.Dasher]: 'Dasher', [EnemyKind.Spitter]: 'Spitter', [EnemyKind.Splitter]: 'Splitter',
+      [EnemyKind.Mini]: 'Splinter', [EnemyKind.Weaver]: 'Weaver', [EnemyKind.Flocker]: 'Flocker',
+      [EnemyKind.Sapper]: 'Sapper', [EnemyKind.Aegis]: 'Aegis', [EnemyKind.Mender]: 'Mender',
+      [EnemyKind.Blinker]: 'Blink Stalker', [EnemyKind.Pylon]: 'Lockdown Pylon',
+      [EnemyKind.BossWarden]: BOSS_NAMES[EnemyKind.BossWarden], [EnemyKind.BossSeraph]: BOSS_NAMES[EnemyKind.BossSeraph],
+      [EnemyKind.BossOmega]: BOSS_NAMES[EnemyKind.BossOmega], [EnemyKind.BossNull]: BOSS_NAMES[EnemyKind.BossNull],
+      [EnemyKind.BossMonolith]: BOSS_NAMES[EnemyKind.BossMonolith],
+    };
+    const enemyTip: Record<number, string> = {
+      [EnemyKind.Sapper]: 'Bait its blast into the horde — it hurts them triple.',
+      [EnemyKind.Aegis]: 'Its shield only faces one way. Outflank it, or dash straight through.',
+      [EnemyKind.Mender]: 'It heals the pack. Kill it first.',
+      [EnemyKind.Blinker]: 'It teleports into your escape lane. Break your rhythm.',
+      [EnemyKind.Pylon]: 'It anchors and locks a lane. Leave, or break it.',
+      [EnemyKind.Splitter]: 'Bursts into splinters. Have area damage ready.',
+      [EnemyKind.Dasher]: 'Telegraphs, then lunges. Sidestep on the flash.',
+      [EnemyKind.Tank]: 'Slow and armored. Freeze it, then shatter it.',
+    };
+    const eRows = Object.keys(ENEMY_DEFS).map(Number).map(kind => {
+      const seen = profile.enemiesSeen.includes(kind);
+      const boss = kind >= 100;
+      return `
+        <div class="codex-item ${seen ? '' : 'locked'} ${boss ? 'boss' : ''}">
+          <div class="codex-dot" style="background:${seen ? (boss ? '#ff3860' : '#ff7a45') : 'transparent'}"></div>
+          <div class="armory-info">
+            <div class="armory-name">${seen ? enemyName[kind] ?? '?' : '???'}</div>
+            <div class="armory-desc">${seen ? (enemyTip[kind] ?? (boss ? 'A grid warden. Lock in and fight.' : 'Standard hostile unit.')) : 'Unencountered'}</div>
+          </div>
+        </div>`;
+    }).join('');
+    const reactions = [
+      [REACTIONS.thermal, 'BURN + CHILL', 'Steam detonation — heavy area damage'],
+      [REACTIONS.superconduct, 'CHILL + SHOCK', 'The freeze leaps to nearby enemies'],
+      [REACTIONS.electrolysis, 'SHOCK + ACID', 'Corrosion arcs across the pack'],
+      [REACTIONS.napalm, 'BURN + ACID', 'The pool ignites into a fire field'],
+    ].map(([name, combo, desc]) => {
+      const seen = profile.reactionsSeen.includes(name);
+      return `
+        <div class="codex-item ${seen ? '' : 'locked'}">
+          <div class="codex-dot" style="background:${seen ? '#ffd75e' : 'transparent'}"></div>
+          <div class="armory-info">
+            <div class="armory-name" style="color:${seen ? '#ffd75e' : ''}">${seen ? name : '???'}</div>
+            <div class="armory-desc">${seen ? `${combo} — ${desc}` : 'Undiscovered reaction'}</div>
+          </div>
+        </div>`;
+    }).join('');
+    const root = this.show(`
+      <div class="screen">
+        <div class="back-row">
+          <button class="back-btn" data-a="back">‹ BACK</button>
+          <span class="shards-chip">◆ ${profile.shards}</span>
+        </div>
+        <div class="screen-title">CODEX</div>
+        <div class="screen-sub">Everything you have met in the grid</div>
+        <div class="codex-tabs">
+          <button class="codex-tab active" data-tab="w">ARSENAL ${profile.weaponsSeen.length}/${WEAPONS.length}</button>
+          <button class="codex-tab" data-tab="e">HOSTILES ${profile.enemiesSeen.length}/${Object.keys(ENEMY_DEFS).length}</button>
+          <button class="codex-tab" data-tab="r">CHEMISTRY ${profile.reactionsSeen.length}/4</button>
+        </div>
+        <div class="armory-list" id="codex-w">${wRows}</div>
+        <div class="armory-list" id="codex-e" style="display:none">${eRows}</div>
+        <div class="armory-list" id="codex-r" style="display:none">${reactions}</div>
+      </div>
+    `);
+    this.click(root, '[data-a="back"]', () => { audio.ui(); this.showTitle(); });
+    this.click(root, '.codex-tab', el => {
+      audio.ui();
+      root.querySelectorAll('.codex-tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      for (const k of ['w', 'e', 'r']) {
+        const list = root.querySelector<HTMLElement>(`#codex-${k}`);
+        if (list) list.style.display = k === el.dataset.tab ? 'flex' : 'none';
+      }
     });
   }
 
