@@ -24,7 +24,7 @@ const TESLA = {
   chains: [2, 3, 3, 4, 5, 5, 5, 6, 9],
   dmg: [1, 1, 1.15, 1.15, 1.15, 1.35, 1.35, 1.35, 1.7],
   cd: [1.4, 1.4, 1.4, 1.1, 1.1, 1.1, 1.1, 0.95, 0.85],
-  strikes: [1, 1, 1, 1, 1, 1, 2, 2, 2],
+  strikes: [1, 1, 1, 1, 2, 2, 2, 2, 2],
   base: 24,
 };
 const NOVA = {
@@ -55,10 +55,13 @@ const BLADES = {
   spin: [2.6, 2.6, 2.6, 2.6, 2.6, 3.6, 3.6, 3.6, 4],
   base: 13,
 };
+// Cryo fires a ring of shards, so it should thrive in a crowd — it was the
+// roster's floor purely because its volleys were too small and too slow to
+// find the targets now standing around it.
 const CRYO = {
-  count: [4, 5, 5, 6, 7, 7, 8, 9, 10],
-  dmg: [1, 1.15, 1.4, 1.4, 1.6, 1.7, 1.7, 1.85, 1.85],
-  cd: [1.3, 1.3, 1.3, 1.15, 1.15, 1.15, 1.02, 1.02, 0.9],
+  count: [6, 7, 8, 9, 10, 11, 12, 14, 12],
+  dmg: [1, 1.15, 1.4, 1.4, 1.6, 1.7, 1.7, 1.85, 1.5],
+  cd: [1.0, 1.0, 1.0, 0.9, 0.9, 0.9, 0.78, 0.78, 0.85],
   chill: [1, 1, 1, 1.5, 1.5, 1.5, 1.5, 2, 2.2],
   base: 17,
 };
@@ -77,18 +80,22 @@ const GLAIVE = {
   size: [10, 10, 14, 14, 14, 14, 18, 18, 26],
   base: 24,
 };
+// Extra mines stack their blasts on the same bodies in a crowd, so late levels
+// buy radius rather than count — area is what still scales.
 const MINES = {
   count: [1, 1, 1, 2, 2, 2, 2, 3, 4],
   dmg: [1, 1.15, 1.3, 1.3, 1.5, 1.7, 1.7, 2.0, 2.4],
   cd: [2.4, 2.4, 2.2, 1.8, 1.6, 1.6, 1.5, 1.25, 1.1],
-  radius: [1, 1.25, 1.25, 1.25, 1.25, 1.4, 1.55, 1.55, 1.9],
-  base: 24,
+  radius: [1, 1.25, 1.25, 1.25, 1.25, 1.4, 1.55, 1.75, 2.1],
+  base: 20,
 };
+// The drone is single-target by nature, which no longer keeps up with a
+// screen-filling horde — so it buys extra barrels as it levels.
 const TURRET = {
-  dmg: [1, 1.1, 1.4, 1.4, 1.8, 1.8, 2.1, 2.1, 2.6],
+  dmg: [1, 1.1, 1.4, 1.4, 1.8, 1.8, 2.1, 1.8, 2.2],
   cd: [0.45, 0.42, 0.42, 0.42, 0.42, 0.34, 0.34, 0.28, 0.26],
-  shots: [1, 1, 1, 2, 2, 2, 2, 2, 2],
-  base: 26,
+  shots: [1, 1, 2, 2, 3, 3, 3, 4, 5],
+  base: 30,
 };
 const VOID = {
   dmg: [1, 1.25, 1.25, 1.25, 1.55, 1.55, 1.55, 1.95, 2.4], // aura dps mult
@@ -111,19 +118,19 @@ const PRISM = {
   dmg: [1, 1.3, 1.3, 1.3, 1.5, 1.7, 1.7, 2.3, 2.6],
   len: [150, 150, 150, 185, 185, 185, 210, 240, 280],
   spin: [1.7, 1.7, 1.7, 1.7, 2.3, 2.3, 2.3, 2.3, 2.9],
-  base: 9,
+  base: 7.5,
 };
 const ION = {
   bounces: [3, 4, 4, 4, 5, 5, 5, 7, 11],
-  discs: [1, 1, 1, 1, 1, 2, 2, 2, 2],
+  discs: [1, 1, 1, 2, 2, 2, 2, 2, 2],
   dmg: [1, 1, 1.15, 1.15, 1.15, 1.15, 1.3, 1.3, 1.9],
   cd: [1.55, 1.55, 1.55, 1.55, 1.3, 1.3, 1.3, 1.2, 1.0],
   shock: [0, 0, 0, 0.35, 0.35, 0.35, 0.35, 0.5, 0.7],
   base: 26,
 };
 const SIGIL = {
-  marks: [1, 1, 1, 1, 2, 2, 2, 3, 4],
-  blast: [1, 1.25, 1.5, 1.5, 1.75, 1.75, 2.1, 2.4, 2.2],
+  marks: [1, 1, 1, 2, 2, 3, 4, 6, 8],
+  blast: [1, 1.25, 1.5, 1.5, 1.75, 1.75, 1.9, 1.9, 1.5],
   cd: [2.6, 2.6, 2.6, 2.1, 2.1, 2.1, 2.1, 1.7, 1.45],
   base: 52,
 };
