@@ -11,9 +11,16 @@ export const enum EnemyKind {
   Mini = 6,
   Weaver = 7,
   Flocker = 8,
+  Sapper = 9, // kamikaze — bait its blast into the horde
+  Aegis = 10, // directional shield — outflank, dash through, or shock it open
+  Mender = 11, // pack healer — priority target
+  Blinker = 12, // teleports into your escape lane
+  Pylon = 13, // anchored turret that locks down lanes
   BossWarden = 100,
   BossSeraph = 101,
   BossOmega = 102,
+  BossNull = 103, // NULL VECTOR — bullet curtains with a single gate
+  BossMonolith = 104, // THE MONOLITH — rotating beams + mortar zones
 }
 
 export const enum Affix {
@@ -58,6 +65,7 @@ export interface Enemy {
   bladeCd: number; // orbital-blade re-hit throttle
   dashHitCd: number; // dash-through re-hit throttle
   zoneCd: number; // ground-zone tick throttle
+  markTimer: number; // Hunter Sigil brand — amp + detonation on death/expiry
   // AI scratch
   seed: number;
   flockId: number;
@@ -211,6 +219,10 @@ export const enum WeaponId {
   Mines = 9,
   Turret = 10,
   Void = 11,
+  Flak = 12,
+  Prism = 13,
+  Ion = 14,
+  Sigil = 15,
 }
 
 export const enum PassiveId {
@@ -224,6 +236,8 @@ export const enum PassiveId {
   Plating = 7,
   Reactor = 8,
   Catalyst = 9, // status effect potency
+  Executioner = 10, // execute low-HP enemies
+  Slipstream = 11, // dashing ignites your wake
 }
 
 export interface WeaponState {

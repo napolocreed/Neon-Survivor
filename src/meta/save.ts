@@ -20,6 +20,7 @@ export interface Records {
   bestChain: number;
   surgesCleared: number;
   playtime: number;
+  totalReactions: number;
   pilotBest?: Record<string, number>;
 }
 
@@ -55,7 +56,7 @@ function defaultProfile(): Profile {
       bestTime: 0, bestKills: 0, bestLevel: 0, bestScore: 0, bestCombo: 0,
       victories: 0, runs: 0, totalKills: 0, totalFrozen: 0, wormKills: 0,
       bossKills: [0, 0, 0], cursesTaken: 0, endlessTime: 0,
-      bestChain: 0, surgesCleared: 0, playtime: 0,
+      bestChain: 0, surgesCleared: 0, playtime: 0, totalReactions: 0,
     },
     settings: { sfx: true, music: true, haptics: true, shake: true },
     achievements: {},

@@ -98,6 +98,36 @@ const VOID = {
   base: 30,
 };
 
+const FLAK = {
+  pellets: [5, 6, 6, 6, 6, 6, 7, 8, 12],
+  dmg: [1, 1, 1.25, 1.25, 1.25, 1.25, 1.6, 1.6, 2.0],
+  cd: [1.35, 1.35, 1.35, 1.1, 1.1, 1.1, 1.1, 0.88, 0.8],
+  arc: [1.05, 1.05, 1.05, 1.05, 1.35, 1.35, 1.35, 1.35, 1.7],
+  pierce: [0, 0, 0, 0, 0, 0, 0, 0, 2],
+  base: 9,
+};
+const PRISM = {
+  beams: [1, 1, 2, 2, 2, 2, 3, 4, 4],
+  dmg: [1, 1.3, 1.3, 1.3, 1.3, 1.7, 1.7, 1.7, 2.1],
+  len: [150, 150, 150, 185, 185, 185, 185, 225, 270],
+  spin: [1.7, 1.7, 1.7, 1.7, 2.3, 2.3, 2.3, 2.3, 2.9],
+  base: 12,
+};
+const ION = {
+  bounces: [3, 4, 4, 4, 5, 5, 5, 7, 12],
+  discs: [1, 1, 1, 1, 1, 2, 2, 2, 2],
+  dmg: [1, 1, 1.3, 1.3, 1.3, 1.3, 1.65, 1.65, 2.3],
+  cd: [1.9, 1.9, 1.9, 1.9, 1.5, 1.5, 1.5, 1.2, 1.0],
+  shock: [0, 0, 0, 0.35, 0.35, 0.35, 0.35, 0.5, 0.7],
+  base: 20,
+};
+const SIGIL = {
+  marks: [1, 1, 1, 1, 2, 2, 2, 3, 4],
+  blast: [1, 1.2, 1.2, 1.2, 1.2, 1.2, 1.55, 1.55, 2.0],
+  cd: [3.0, 3.0, 3.0, 2.4, 2.4, 2.4, 2.4, 1.9, 1.6],
+  base: 40,
+};
+
 // ------------------------------------------------------------ firing
 
 export function fireWeapons(g: Game, dt: number): void {
@@ -133,8 +163,224 @@ export function fireWeapons(g: Game, dt: number): void {
       case WeaponId.Glaive: fireGlaive(g, w); break;
       case WeaponId.Mines: fireMines(g, w); break;
       case WeaponId.Void: fireVoid(g, w); break;
+      case WeaponId.Flak: fireFlak(g, w, NaN); break;
+      case WeaponId.Ion: fireIon(g, w); break;
+      case WeaponId.Sigil: fireSigil(g, w); break;
     }
   }
+}
+
+// ------------------------------------------------------------ flak cannon
+
+function fireFlak(g: Game, w: WeaponState, forcedAngle: number): void {
+  const i = idx(w);
+  let angle = forcedAngle;
+  if (!Number.isFinite(angle)) {
+    const target = g.nearestEnemy(g.px, g.py, 380);
+    if (!target) return;
+    w.cooldown = FLAK.cd[i] * g.cdMult();
+    angle = Math.atan2(target.y - g.py, target.x - g.px);
+  }
+  const n = FLAK.pellets[i];
+  const arc = FLAK.arc[i];
+  for (let k = 0; k < n; k++) {
+    const p = g.projectiles.spawn();
+    if (!p) break;
+    const a = angle + (k / (n - 1) - 0.5) * arc + rand(-0.05, 0.05);
+    const sp = rand(620, 780);
+    p.x = g.px; p.y = g.py;
+    p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp;
+    p.radius = 3.5;
+    p.damage = FLAK.base * FLAK.dmg[i] * g.dmgMult();
+    p.pierce = FLAK.pierce[i];
+    p.life = w.evolved ? 0.42 : 0.32;
+    p.kind = WeaponId.Flak;
+    p.homing = 0; p.targetIdx = -1; p.hitCd = 0; p.phase = 0;
+    p.knockback = 260;
+    p.seed = w.level >= 6 || w.evolved ? 1 : 0; // 1 = ignites
+  }
+  muzzleFlash(g, angle, WEAPONS[WeaponId.Flak].color);
+  audio.shoot(2);
+  g.addTrauma(0.08);
+}
+
+/** Dash synergy: dashing fires a FREE flak volley along the dash vector. */
+export function flakDashVolley(g: Game, angle: number): void {
+  const w = g.weapons.find(x => x.id === WeaponId.Flak);
+  if (!w) return;
+  if (w.burstTimer > 0) return; // 0.25s throttle so chains stay sane
+  w.burstTimer = 0.25;
+  fireFlak(g, w, angle);
+}
+
+// ------------------------------------------------------------ photon sweep
+
+export function updatePrism(g: Game, dt: number): void {
+  const w = g.weapons.find(x => x.id === WeaponId.Prism);
+  if (!w) return;
+  w.burstTimer = Math.max(0, w.burstTimer - dt);
+  const i = idx(w);
+  const grazeBoost = g.grazeBoostTimer > 0 ? 1.6 : 1;
+  const odBoost = g.overdriveActive ? 1.3 : 1;
+  w.angle += PRISM.spin[i] * grazeBoost * odBoost * dt;
+  const n = PRISM.beams[i];
+  const len = PRISM.len[i] * g.stats.areaMult * (g.overdriveActive ? 1.4 : 1);
+  const dmg = PRISM.base * PRISM.dmg[i] * g.dmgMult();
+  for (let b = 0; b < n; b++) {
+    const a = w.angle + (b / n) * TAU;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const midX = g.px + cos * len * 0.5;
+    const midY = g.py + sin * len * 0.5;
+    const near = g.grid.query(midX, midY, len * 0.5 + 40);
+    for (let k = near.length - 1; k >= 0; k--) {
+      const e = near[k];
+      if (e.spawnTimer > 0 || e.hp <= 0) continue;
+      e.bladeCd -= dt / n; // shared throttle across beams
+      if (e.bladeCd > 0) continue;
+      const relX = e.x - g.px, relY = e.y - g.py;
+      const along = relX * cos + relY * sin;
+      if (along < g.playerRadius || along > len) continue;
+      if (Math.abs(-relX * sin + relY * cos) < (w.evolved ? 13 : 9) + e.radius) {
+        e.bladeCd = 0.35;
+        // Lighthouse Protocol: graze-charged guaranteed crits
+        const forceCrit = w.evolved && w.burst > 0;
+        if (forceCrit) w.burst--;
+        g.dealDamage(e, dmg * (forceCrit ? 2 : 1), { canCrit: !forceCrit, src: WeaponId.Prism });
+      }
+    }
+    // worms
+    for (const worm of g.worms) {
+      for (let sIdx = 0; sIdx < worm.segs.length; sIdx++) {
+        const seg = worm.segs[sIdx];
+        const relX = seg.x - g.px, relY = seg.y - g.py;
+        const along = relX * cos + relY * sin;
+        if (along < 0 || along > len) continue;
+        if (Math.abs(-relX * sin + relY * cos) < 12 + worm.radius && worm.hitCd < 0.55) {
+          worm.hitCd = Math.max(worm.hitCd, 0.55);
+          hitWorm(g, worm, sIdx, dmg, WeaponId.Prism);
+          break;
+        }
+      }
+    }
+  }
+}
+
+/** Render geometry for the photon sweep. */
+export function prismGeometry(g: Game): { n: number; len: number; angle: number; evolved: boolean; charged: boolean } | null {
+  const w = g.weapons.find(x => x.id === WeaponId.Prism);
+  if (!w) return null;
+  const i = idx(w);
+  return {
+    n: PRISM.beams[i],
+    len: PRISM.len[i] * g.stats.areaMult * (g.overdriveActive ? 1.4 : 1),
+    angle: w.angle,
+    evolved: w.evolved,
+    charged: g.grazeBoostTimer > 0 || (w.evolved && w.burst > 0),
+  };
+}
+
+/** Graze hook: spin boost + evolved overcharge. */
+export function prismOnGraze(g: Game): void {
+  const w = g.weapons.find(x => x.id === WeaponId.Prism);
+  if (!w) return;
+  if (w.evolved) w.burst = Math.min(9, w.burst + 3);
+}
+
+// ------------------------------------------------------------ ion disc
+
+function fireIon(g: Game, w: WeaponState): void {
+  const target = g.nearestEnemy(g.px, g.py, 650);
+  if (!target) return;
+  const i = idx(w);
+  w.cooldown = ION.cd[i] * g.cdMult();
+  for (let d = 0; d < ION.discs[i]; d++) {
+    const p = g.projectiles.spawn();
+    if (!p) break;
+    const a = Math.atan2(target.y - g.py, target.x - g.px) + d * 0.5;
+    p.x = g.px; p.y = g.py;
+    p.vx = Math.cos(a) * 540; p.vy = Math.sin(a) * 540;
+    p.radius = w.evolved ? 9 : 7;
+    p.damage = ION.base * ION.dmg[i] * g.dmgMult();
+    p.pierce = ION.bounces[i]; // bounce budget
+    p.life = 4;
+    p.kind = WeaponId.Ion;
+    p.homing = 0; p.targetIdx = -1; p.hitCd = 0;
+    p.phase = 0; // bounce count (damage ramp)
+    p.knockback = 60;
+    p.seed = ION.shock[i]; // shock duration per bounce
+  }
+  audio.shoot(1);
+}
+
+// ------------------------------------------------------------ hunter sigil
+
+function fireSigil(g: Game, w: WeaponState): void {
+  const i = idx(w);
+  // count active marks
+  let marked = 0;
+  for (let k = 0; k < g.enemies.count; k++) {
+    if (g.enemies.items[k].markTimer > 0) marked++;
+  }
+  if (marked >= SIGIL.marks[i]) {
+    w.cooldown = 0.3;
+    return;
+  }
+  // brand the beefiest unmarked target (elites & bosses weighted up)
+  let best: Enemy | null = null;
+  let bestScore = 0;
+  for (let k = 0; k < g.enemies.count; k++) {
+    const e = g.enemies.items[k];
+    if (e.spawnTimer > 0 || e.markTimer > 0) continue;
+    if (dist2(g.px, g.py, e.x, e.y) > 600 * 600) continue;
+    const score = e.maxHp * (e.elite || e.kind >= 100 ? 2 : 1);
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  if (!best) return;
+  w.cooldown = SIGIL.cd[i] * g.cdMult();
+  best.markTimer = 5;
+  g.bolts.push({ x1: g.px, y1: g.py, x2: best.x, y2: best.y, life: 0.2, color: WEAPONS[WeaponId.Sigil].color });
+  audio.shoot(3);
+}
+
+/** Detonate a mark (on death, dash-execution, or expiry). */
+export function sigilDetonate(g: Game, x: number, y: number, dashBoost: boolean): void {
+  const w = g.weapons.find(x2 => x2.id === WeaponId.Sigil);
+  if (!w) return;
+  const i = idx(w);
+  const r = 90 * g.stats.areaMult;
+  const dmg = SIGIL.base * SIGIL.blast[i] * g.dmgMult() * (dashBoost ? (w.evolved ? 2 : 1.5) : 1);
+  const near = g.grid.query(x, y, r + 30);
+  for (let k = near.length - 1; k >= 0; k--) {
+    const e = near[k];
+    if (e.spawnTimer > 0 || e.hp <= 0) continue;
+    if (dist2(x, y, e.x, e.y) < (r + e.radius) ** 2) {
+      if (w.level >= 3 || w.evolved) g.applyAcid(e, 6, 3);
+      g.dealDamage(e, dmg, { canCrit: false, src: WeaponId.Sigil });
+    }
+  }
+  const ring = g.particles.spawnOrRecycle();
+  ring.kind = ParticleKind.Ring; ring.x = x; ring.y = y; ring.vx = 0; ring.vy = 0;
+  ring.life = 0.4; ring.maxLife = 0.4; ring.size = r; ring.color = 8;
+  g.addTrauma(0.15);
+  audio.kill(15);
+  // Death Sentence: brands spread on kill
+  if (w.evolved) {
+    let spread = 0;
+    const around = g.grid.query(x, y, 260);
+    for (let k = 0; k < around.length && spread < 2; k++) {
+      const e = around[k];
+      if (e.spawnTimer > 0 || e.hp <= 0 || e.markTimer > 0) continue;
+      e.markTimer = 5;
+      g.bolts.push({ x1: x, y1: y, x2: e.x, y2: e.y, life: 0.18, color: WEAPONS[WeaponId.Sigil].color });
+      spread++;
+    }
+  }
+}
+
+/** Sigil amp factor for damage vs marked enemies. */
+export function sigilAmp(g: Game): number {
+  const w = g.weapons.find(x => x.id === WeaponId.Sigil);
+  return w ? (w.evolved ? 1.45 : 1.25) : 1;
 }
 
 function firePulseVolley(g: Game, w: WeaponState): void {
@@ -829,6 +1075,9 @@ export function updateProjectiles(g: Game, dt: number): void {
         if (p.kind === WeaponId.Cryo) {
           g.applyChill(e, p.phase);
         }
+        if (p.kind === WeaponId.Flak && p.seed > 0) {
+          g.applyBurn(e, 4 * g.dmgMult() * 0.4, 2);
+        }
 
         if (p.kind === WeaponId.Acid) {
           burstAcid(g, p.x, p.y, p.damage, p.phase, p.seed);
@@ -859,6 +1108,42 @@ export function updateProjectiles(g: Game, dt: number): void {
           break;
         }
 
+        if (p.kind === WeaponId.Ion) {
+          // ricochet: retarget, ramp damage, maybe shock
+          p.phase++;
+          if (p.seed > 0) g.applyShock(e, p.seed);
+          if (killed && isIonEvolved(g)) p.pierce++; // kills refund the bounce
+          p.pierce--;
+          if (p.pierce < 0) {
+            g.projectiles.releaseAt(i);
+            break;
+          }
+          let next: Enemy | null = null;
+          let bestD = 260 * 260;
+          const around = g.grid.query(p.x, p.y, 260);
+          for (let q = 0; q < around.length; q++) {
+            const e2 = around[q];
+            if (e2 === e || e2.spawnTimer > 0 || e2.hp <= 0) continue;
+            const d2b = dist2(p.x, p.y, e2.x, e2.y);
+            if (d2b < bestD) { bestD = d2b; next = e2; }
+          }
+          if (next) {
+            const d = Math.hypot(next.x - p.x, next.y - p.y) || 1;
+            p.vx = ((next.x - p.x) / d) * 540;
+            p.vy = ((next.y - p.y) / d) * 540;
+            p.damage *= 1 + (isIonEvolved(g) ? 0.12 : 0.10);
+            g.bolts.push({ x1: p.x, y1: p.y, x2: next.x, y2: next.y, life: 0.1, color: WEAPONS[WeaponId.Ion].color });
+            p.hitCd = 0.1;
+            p.life = Math.max(p.life, 1.2);
+          } else {
+            p.vx = -p.vx * 0.8;
+            p.vy = -p.vy * 0.8;
+            p.life = Math.min(p.life, 0.5);
+            p.hitCd = 0.15;
+          }
+          break;
+        }
+
         p.pierce--;
         p.hitCd = 0.07;
         if (p.pierce < 0) {
@@ -868,6 +1153,10 @@ export function updateProjectiles(g: Game, dt: number): void {
       }
     }
   }
+}
+
+function isIonEvolved(g: Game): boolean {
+  return !!g.weapons.find(x => x.id === WeaponId.Ion)?.evolved;
 }
 
 function isClusterEvolved(g: Game): boolean {

@@ -30,6 +30,10 @@ export const COLORS = {
     '#ffb02e', // mines
     '#45d7ff', // turret
     '#c46bff', // void
+    '#ff6a3d', // flak
+    '#f4f9ff', // prism
+    '#7d8cff', // ion
+    '#b8ff5e', // sigil
   ] as string[],
 };
 
@@ -158,6 +162,34 @@ export const WEAPONS: WeaponDef[] = [
     pair: PassiveId.Magnet, color: COLORS.weapons[11], maxLevel: 8,
     levelDesc: ['Launches a crushing gravity orb', '+25% damage', 'Stronger pull', 'Bigger orb', '+30% damage', 'Faster launches', 'Stronger pull', '+40% damage & bigger orb'],
   },
+  {
+    id: WeaponId.Flak, name: 'Flak Cannon', evoName: 'DRAGONBREATH',
+    desc: 'Point-blank shrapnel cone. Dashing fires a free volley.',
+    evoDesc: 'The cone becomes a firestorm — piercing, igniting, endless.',
+    pair: PassiveId.Plating, color: COLORS.weapons[12], maxLevel: 8,
+    levelDesc: ['Blasts a shrapnel cone — dashing fires a free volley', '+1 pellet', '+25% damage', 'Faster reload', 'Wider cone', 'Pellets ignite (BURN)', '+1 pellet & +30% damage', '+1 pellet & faster reload'],
+  },
+  {
+    id: WeaponId.Prism, name: 'Photon Sweep', evoName: 'LIGHTHOUSE PROTOCOL',
+    desc: 'A light beam sweeps around you. Grazing spins it faster.',
+    evoDesc: 'Four blinding spokes — every graze overcharges them to crit.',
+    pair: PassiveId.Thrusters, color: COLORS.weapons[13], maxLevel: 8,
+    levelDesc: ['A photon beam sweeps around you — grazes speed the sweep', '+30% damage', '+1 beam', 'Longer beams', 'Faster sweep', '+30% damage', '+1 beam', '+1 beam & longer reach'],
+  },
+  {
+    id: WeaponId.Ion, name: 'Ion Disc', evoName: "MAXWELL'S DEMON",
+    desc: 'A disc that ricochets from foe to foe, charging up.',
+    evoDesc: 'Two demon discs bounce forever — kills refund the bounce.',
+    pair: PassiveId.Lucky, color: COLORS.weapons[14], maxLevel: 8,
+    levelDesc: ['Hurls a disc that ricochets between foes, charging up', '+1 bounce', '+30% damage', 'Bounces apply SHOCK', 'Faster throws & +1 bounce', 'Throws 2 discs', '+25% damage', '+2 bounces & faster throws'],
+  },
+  {
+    id: WeaponId.Sigil, name: 'Hunter Sigil', evoName: 'DEATH SENTENCE',
+    desc: 'Brands the strongest threat — all damage amplified, then it detonates.',
+    evoDesc: 'Brands spread on kill. Dash executions detonate twice as hard.',
+    pair: PassiveId.Catalyst, color: COLORS.weapons[15], maxLevel: 8,
+    levelDesc: ['Brands the toughest enemy for amplified damage & detonation', '+20% blast damage', 'Blasts splash ACID', 'Faster branding', '+1 simultaneous mark', 'Stronger amplification', '+30% blast damage', '+1 mark & faster branding'],
+  },
 ];
 
 // ------------------------------------------------------------------ passives
@@ -181,6 +213,8 @@ export const PASSIVES: PassiveDef[] = [
   { id: PassiveId.Plating, name: 'Neon Plating', desc: '+1 armor', maxLevel: 5, icon: '⬡' },
   { id: PassiveId.Reactor, name: 'Nano Reactor', desc: '+0.8 HP/s regen', maxLevel: 5, icon: '✚' },
   { id: PassiveId.Catalyst, name: 'Catalyst', desc: '+15% status effect power', maxLevel: 5, icon: '☣' },
+  { id: PassiveId.Executioner, name: 'Reaper Subroutine', desc: 'Execute foes under 3% HP per level', maxLevel: 5, icon: '☠' },
+  { id: PassiveId.Slipstream, name: 'Slipstream Coil', desc: 'Dashes ignite your wake: +5% dmg & +4% speed for 4s', maxLevel: 5, icon: '≋' },
 ];
 
 // ------------------------------------------------------------------ curses
@@ -194,6 +228,10 @@ export const CURSES: CurseDef[] = [
   { id: 'volatile', name: 'Volatile Rounds', good: 'Enemies explode on death', bad: 'Blasts hurt you too' },
   { id: 'singularity', name: 'Singularity Lens', good: '+40% area of effect', bad: 'Enemies 10% faster' },
   { id: 'vampire', name: 'Crimson Firmware', good: 'Heal 2 HP per kill in Overdrive', bad: 'Overdrive charges 30% slower' },
+  { id: 'momentum', name: 'Kinetic Debt', good: 'Dash hits ×2 damage · +0.4s chain window', bad: 'A dash that kills nothing drains 6 HP' },
+  { id: 'edge', name: 'Razor Protocol', good: 'Grazes shock the nearest foe & charge +75% Overdrive', bad: 'Your hull is 25% bigger' },
+  { id: 'alchemy', name: 'Rogue Catalyst', good: 'Reactions hit 80% harder', bad: 'Each reaction burns 2 max HP (floor 60%)' },
+  { id: 'defiance', name: 'Siren Firmware', good: 'Beacons come twice as often · double surge loot', bad: 'Enemies +15% faster while a beacon waits' },
 ];
 
 // ------------------------------------------------------------------ mutators
@@ -214,6 +252,10 @@ export const MUTATORS: MutatorDef[] = [
   { id: 'phantom', name: 'PHANTOM GRID', desc: '+1 dash charge · −15% max HP', weight: 1 },
   { id: 'storm', name: 'STORM GRID', desc: 'Wild lightning strikes your foes', weight: 1 },
   { id: 'cryo', name: 'FROZEN GRID', desc: 'Enemies 12% slower · +15% HP', weight: 1 },
+  { id: 'tidal', name: 'TIDAL GRID', desc: 'The horde comes in crashing waves', weight: 1 },
+  { id: 'decay', name: 'DECAY GRID', desc: 'Gems evaporate in 9s · worth +50%', weight: 1 },
+  { id: 'serpent', name: 'SERPENT GRID', desc: 'A Void Serpent endlessly re-forms', weight: 0.8 },
+  { id: 'eclipse', name: 'ECLIPSE GRID', desc: 'Vision limited to your halo · +25% XP', weight: 0.8 },
 ];
 
 export const REACTIONS = {
@@ -244,15 +286,27 @@ export const ENEMY_DEFS: Record<number, EnemyDef> = {
   [EnemyKind.Mini]: { hp: 10, speed: 165, radius: 8, damage: 6, xp: 1, kbResist: 0 },
   [EnemyKind.Weaver]: { hp: 22, speed: 120, radius: 12, damage: 9, xp: 2, kbResist: 0.1 },
   [EnemyKind.Flocker]: { hp: 14, speed: 130, radius: 11, damage: 7, xp: 2, kbResist: 0 },
+  [EnemyKind.Sapper]: { hp: 20, speed: 132, radius: 12, damage: 4, xp: 2, kbResist: 0 },
+  [EnemyKind.Aegis]: { hp: 45, speed: 55, radius: 17, damage: 10, xp: 4, kbResist: 0.6 },
+  [EnemyKind.Mender]: { hp: 30, speed: 78, radius: 13, damage: 6, xp: 6, kbResist: 0.2 },
+  [EnemyKind.Blinker]: { hp: 26, speed: 92, radius: 12, damage: 11, xp: 3, kbResist: 0.3 },
+  [EnemyKind.Pylon]: { hp: 60, speed: 60, radius: 15, damage: 8, xp: 5, kbResist: 0.4 },
   [EnemyKind.BossWarden]: { hp: 1900, speed: 55, radius: 52, damage: 22, xp: 60, kbResist: 1 },
   [EnemyKind.BossSeraph]: { hp: 6800, speed: 62, radius: 56, damage: 26, xp: 100, kbResist: 1 },
   [EnemyKind.BossOmega]: { hp: 16000, speed: 70, radius: 64, damage: 32, xp: 200, kbResist: 1 },
+  [EnemyKind.BossNull]: { hp: 2000, speed: 62, radius: 46, damage: 20, xp: 60, kbResist: 1 },
+  [EnemyKind.BossMonolith]: { hp: 6400, speed: 30, radius: 60, damage: 26, xp: 100, kbResist: 1 },
 };
+
+/** Target boss HP per slot — spawn scales the def to the slot budget. */
+export const BOSS_SLOT_HP = [1950, 6600, 15500];
 
 export const BOSS_NAMES: Record<number, string> = {
   [EnemyKind.BossWarden]: 'THE WARDEN',
   [EnemyKind.BossSeraph]: 'SERAPH-9',
   [EnemyKind.BossOmega]: 'OMEGA PRIME',
+  [EnemyKind.BossNull]: 'NULL VECTOR',
+  [EnemyKind.BossMonolith]: 'THE MONOLITH',
 };
 
 export const WORM = {
@@ -278,21 +332,25 @@ export const WAVES: WavePhase[] = [
   { t: 0, interval: 1.25, batch: 2, kinds: [EnemyKind.Chaser], weights: [1] },
   { t: 30, interval: 1.0, batch: 2, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 2] },
   { t: 70, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 3, 2] },
-  { t: 115, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher], weights: [3, 3, 2, 1.5, 1.5] },
-  { t: 205, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter], weights: [3, 3, 2, 2, 2, 1.5] },
-  { t: 265, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 2.5, 2, 2, 1.5, 1.5] },
+  { t: 115, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 3, 2, 1.5, 1.5, 1.2] },
+  { t: 150, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 3, 2, 1.5, 1.5, 1.2, 1.5] },
+  { t: 205, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 3, 2, 2, 2, 1.5, 1.3] },
+  { t: 230, interval: 1.0, batch: 3, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 3, 2, 2, 2, 1.5, 1.3, 1] },
+  { t: 265, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1] },
+  { t: 300, interval: 0.95, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2] },
+  { t: 340, interval: 0.9, batch: 4, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 2.5, 2, 2, 1.5, 1.5, 1, 1.2, 0.9] },
   { t: 420, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [2, 3, 2.5, 2.5, 2, 1.5, 2] },
-  { t: 480, interval: 0.72, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3, 2.5, 2, 2.5] },
-  { t: 560, interval: 0.62, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3.5, 3, 2.5, 3] },
+  { t: 480, interval: 0.72, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Sapper, EnemyKind.Blinker, EnemyKind.Mender], weights: [3, 3, 3, 2.5, 2, 2.5, 1.3, 1.3, 1] },
+  { t: 560, interval: 0.62, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Blinker, EnemyKind.Pylon], weights: [3, 3, 3.5, 3, 2.5, 3, 1.5, 1] },
 ];
 
 export const BOSS_SLOT_TIMES = [180, 390, 600];
 
 /** Candidate pools per boss slot — each run rolls one boss per slot. */
 export const BOSS_POOLS: EnemyKind[][] = [
-  [EnemyKind.BossWarden],
-  [EnemyKind.BossSeraph],
-  [EnemyKind.BossOmega],
+  [EnemyKind.BossWarden, EnemyKind.BossNull],
+  [EnemyKind.BossSeraph, EnemyKind.BossNull, EnemyKind.BossMonolith],
+  [EnemyKind.BossOmega, EnemyKind.BossMonolith],
 ];
 
 export const EVENTS: { t: number; type: 'ring' | 'stream' | 'flock' | 'worm' }[] = [
@@ -326,6 +384,8 @@ export const SHIP_PATHS: Record<string, [number, number][]> = {
   bulwark: [[1.1, 0], [0.35, 0.62], [-0.55, 1.0], [-0.95, 0.45], [-0.6, 0], [-0.95, -0.45], [-0.55, -1.0], [0.35, -0.62]],
   wraith: [[1.35, 0], [-0.1, 0.42], [-1.15, 0.95], [-0.55, 0.12], [-0.55, -0.12], [-1.15, -0.95], [-0.1, -0.42]],
   glitch: [[1.45, 0.12], [-0.25, 0.88], [-0.75, 0.28], [-1.05, -0.55], [-0.15, -0.75]],
+  echo: [[1.3, 0], [0.2, 0.45], [-0.7, 0.85], [-0.35, 0.25], [-1.05, 0], [-0.35, -0.25], [-0.7, -0.85], [0.2, -0.45]],
+  helix: [[1.4, 0], [-0.2, 0.6], [-1.0, 0.75], [-0.55, 0], [-1.0, -0.75], [-0.2, -0.6]],
 };
 
 // ------------------------------------------------------------------ pilots
@@ -346,7 +406,7 @@ export interface PilotDef {
   dashCharges: number;
   dashCooldownMult: number;
   dashDamageMult: number;
-  ability: 'overload' | 'bullettime' | 'aegis' | 'phantom' | 'anomaly';
+  ability: 'overload' | 'bullettime' | 'aegis' | 'phantom' | 'anomaly' | 'rewind' | 'catalyze';
   abilityName: string;
   abilityDesc: string;
   abilityCd: number;
@@ -392,6 +452,22 @@ export const PILOTS: PilotDef[] = [
     hpMult: 0.9, dmgMult: 1, speedMult: 1, armor: 0, regen: 0.6,
     dashCharges: 2, dashCooldownMult: 1, dashDamageMult: 1,
     ability: 'anomaly', abilityName: 'ANOMALY', abilityDesc: 'Something happens. Always something good.', abilityCd: 35,
+  },
+  {
+    id: 'echo', name: 'ECHO', title: 'The Time Debtor',
+    desc: 'Rewinds through time itself. Starts with the Boomerang Glaive.',
+    color: '#ffd75e', cost: 1500, startWeapon: WeaponId.Glaive,
+    hpMult: 0.85, dmgMult: 1.05, speedMult: 1.05, armor: 0, regen: 0.5,
+    dashCharges: 2, dashCooldownMult: 1, dashDamageMult: 1,
+    ability: 'rewind', abilityName: 'REWIND', abilityDesc: 'Snap back 4s — the time-trail burns everything it crosses', abilityCd: 30,
+  },
+  {
+    id: 'helix', name: 'HELIX', title: 'The Grid Alchemist',
+    desc: 'Master of reactions. Starts with the Acid Launcher.',
+    color: '#9fff45', cost: 2600, startWeapon: WeaponId.Acid,
+    hpMult: 1.0, dmgMult: 0.9, speedMult: 1.0, armor: 0, regen: 0.6,
+    dashCharges: 2, dashCooldownMult: 1, dashDamageMult: 1,
+    ability: 'catalyze', abilityName: 'CATALYZE', abilityDesc: 'Every status meets its opposite — mass chemistry', abilityCd: 28,
   },
 ];
 
@@ -458,6 +534,8 @@ export interface AchievementStats {
   bestChain: number;
   reactionsSeen: number;
   surgesCleared: number;
+  runCurses: number;
+  totalReactions: number;
 }
 
 export const ACHIEVEMENTS: AchievementDef[] = [
@@ -479,6 +557,16 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'worm', name: 'Serpent Slayer', desc: 'Destroy a Void Serpent', reward: 150, check: s => s.wormKills >= 1 },
   { id: 'deal', name: 'Deal With It', desc: 'Accept a Cursed Tech offer', reward: 75, check: s => s.cursesTaken >= 1 },
   { id: 'endless15', name: 'Beyond The Wall', desc: 'Reach 15:00 in Endless', reward: 300, check: s => s.endlessTime >= 900 },
+  { id: 'reap100k', name: 'Grid Reaper', desc: 'Destroy 100,000 enemies (total)', reward: 1000, check: s => s.totalKills >= 100000 },
+  { id: 'combo300', name: 'Singular Flow', desc: 'Reach a 300× combo', reward: 400, check: s => s.bestCombo >= 300 },
+  { id: 'chain25', name: 'Beyond The Bullet', desc: 'Reach a 25× dash chain', reward: 500, check: s => s.bestChain >= 25 },
+  { id: 'serpent10', name: 'Serpent Culler', desc: 'Destroy 10 Void Serpents (total)', reward: 300, check: s => s.wormKills >= 10 },
+  { id: 'trinity', name: 'Triple Crown', desc: 'Destroy each boss slot 3 times', reward: 400, check: s => s.bossKills[0] >= 3 && s.bossKills[1] >= 3 && s.bossKills[2] >= 3 },
+  { id: 'heretic', name: 'Grid Heretic', desc: 'Survive 10 Defiance Surges (total)', reward: 350, check: s => s.surgesCleared >= 10 },
+  { id: 'faust', name: 'Faustian Bargain', desc: 'Carry 4 curses in a single run', reward: 400, check: s => s.runCurses >= 4 },
+  { id: 'alch500', name: 'Grand Alchemist', desc: 'Trigger 500 reactions (total)', reward: 300, check: s => s.totalReactions >= 500 },
+  { id: 'longdark', name: 'The Long Dark', desc: 'Reach 30:00 in Endless', reward: 600, check: s => s.endlessTime >= 1800 },
+  { id: 'pentakill', name: 'Serial Survivor', desc: 'Win 5 runs', reward: 600, check: s => s.victories >= 5 },
   { id: 'chain8', name: 'You Are The Bullet', desc: 'Reach an 8× dash chain', reward: 150, check: s => s.bestChain >= 8 },
   { id: 'chain15', name: 'Human Railgun', desc: 'Reach a 15× dash chain', reward: 300, check: s => s.bestChain >= 15 },
   { id: 'chemist', name: 'Grid Chemist', desc: 'Discover all 4 elemental reactions', reward: 300, check: s => s.reactionsSeen >= 4 },

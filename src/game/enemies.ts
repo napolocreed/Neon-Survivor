@@ -2,7 +2,7 @@
 
 import { Game, GRAZE_RADIUS } from './game';
 import { Enemy, EnemyKind, Affix, ParticleKind, Worm } from './types';
-import { WAVES, BOSS_SLOT_TIMES, BOSS_POOLS, EVENTS, ENEMY_DEFS, BOSS_NAMES, WORM, hpScale, damageScale } from './data';
+import { WAVES, BOSS_SLOT_TIMES, BOSS_POOLS, BOSS_SLOT_HP, EVENTS, ENEMY_DEFS, BOSS_NAMES, WORM, hpScale, damageScale } from './data';
 import { rand, randInt, TAU, pickWeighted, clamp } from '../core/math';
 import { audio } from '../audio/audio';
 import { profile } from '../meta/save';
@@ -173,6 +173,172 @@ export function updateEnemies(g: Game, dt: number): void {
           }
           break;
         }
+        case EnemyKind.Sapper: {
+          // kamikaze: rush, plant, fuse, blast — bait it into the horde
+          if (e.aiState === 0) {
+            const wob = Math.sin(g.time * 7 + e.seed) * 0.35;
+            e.vx = (nx - ny * wob) * spd;
+            e.vy = (ny + nx * wob) * spd;
+            if (dist < 90) {
+              e.aiState = 1;
+              e.aiTimer = 0.9;
+              e.kbResist = 0.9;
+            }
+          } else {
+            e.vx *= 0.6;
+            e.vy *= 0.6;
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0) {
+              sapperBlast(g, e);
+              g.killEnemy(e);
+              continue;
+            }
+          }
+          break;
+        }
+        case EnemyKind.Aegis: {
+          // frontal shield tracks the player, capped at 1.5 rad/s — outflank it
+          const cur = Math.atan2(e.aimY, e.aimX);
+          const want = Math.atan2(ny, nx);
+          let da = want - cur;
+          while (da > Math.PI) da -= TAU;
+          while (da < -Math.PI) da += TAU;
+          const na = cur + clamp(da, -1.5 * dt, 1.5 * dt);
+          e.aimX = Math.cos(na);
+          e.aimY = Math.sin(na);
+          e.vx = nx * spd;
+          e.vy = ny * spd;
+          break;
+        }
+        case EnemyKind.Mender: {
+          // shadows the nearest pack and channels a heal pulse
+          if (e.aiState === 0) {
+            if (dist < 260) { e.vx = -nx * spd; e.vy = -ny * spd; }
+            else if (dist > 340) { e.vx = nx * spd * 0.7; e.vy = ny * spd * 0.7; }
+            else { e.vx = -ny * spd * 0.6; e.vy = nx * spd * 0.6; }
+            e.shootTimer -= dt;
+            if (e.shootTimer <= 0) {
+              // channel only with ≥2 patients nearby
+              let allies = 0;
+              const near2 = g.grid.query(e.x, e.y, 130);
+              for (let q = 0; q < near2.length; q++) {
+                const o = near2[q];
+                if (o !== e && o.kind < EnemyKind.BossWarden && o.hp < o.maxHp) allies++;
+              }
+              if (allies >= 2) { e.aiState = 1; e.aiTimer = 0.8; }
+              else e.shootTimer = 1;
+            }
+          } else {
+            e.vx *= 0.7;
+            e.vy *= 0.7;
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0) {
+              e.aiState = 0;
+              e.shootTimer = 4;
+              const near2 = g.grid.query(e.x, e.y, 140);
+              for (let q = 0; q < near2.length; q++) {
+                const o = near2[q];
+                if (o === e || o.kind >= EnemyKind.BossWarden || o.hp <= 0) continue;
+                if (o.hp < o.maxHp) {
+                  o.hp = Math.min(o.maxHp, o.hp + o.maxHp * 0.12);
+                  g.bolts.push({ x1: e.x, y1: e.y, x2: o.x, y2: o.y, life: 0.2, color: '#5eff9f' });
+                }
+              }
+              audio.shoot(3);
+            }
+          }
+          break;
+        }
+        case EnemyKind.Blinker: {
+          // stalks, then blinks into your escape lane — break your rhythm
+          if (e.aiState === 0) {
+            e.vx = nx * spd * 0.7;
+            e.vy = ny * spd * 0.7;
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0 && dist < 420) {
+              e.aiState = 1;
+              e.aiTimer = 0.35;
+              // destination: predicted player pos, offset to the side
+              const pvx = g.input.moveX * g.stats.speed;
+              const pvy = g.input.moveY * g.stats.speed;
+              const side = Math.random() < 0.5 ? 1 : -1;
+              const m = Math.hypot(pvx, pvy) || 1;
+              e.aimX = g.px + pvx * 0.4 - (pvy / m) * 150 * side;
+              e.aimY = g.py + pvy * 0.4 + (pvx / m) * 150 * side;
+              const gp = g.particles.spawnOrRecycle();
+              gp.kind = ParticleKind.Ring; gp.x = e.aimX; gp.y = e.aimY; gp.vx = 0; gp.vy = 0;
+              gp.life = 0.35; gp.maxLife = 0.35; gp.size = 26; gp.color = 10;
+            }
+          } else if (e.aiState === 1) {
+            e.vx *= 0.5;
+            e.vy *= 0.5;
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0) {
+              e.x = e.aimX;
+              e.y = e.aimY;
+              e.aiState = 2;
+              e.aiTimer = 0.3;
+              e.spawnTimer = 0.12;
+              audio.shoot(1);
+            }
+          } else {
+            // short lunge after materializing
+            e.vx = nx * spd * 2.2;
+            e.vy = ny * spd * 2.2;
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0) { e.aiState = 0; e.aiTimer = 2.2; }
+          }
+          break;
+        }
+        case EnemyKind.Pylon: {
+          if (e.aiState === 0) {
+            // drift to an anchor point, then plant
+            e.aiTimer -= dt;
+            if (dist < 420 || e.aiTimer <= 0) {
+              e.aiState = 1;
+              e.aiTimer = 1.0;
+              e.kbResist = 1;
+              e.vx = 0; e.vy = 0;
+            } else {
+              e.vx = nx * spd;
+              e.vy = ny * spd;
+            }
+          } else if (e.aiState === 1) {
+            // aim: track capped, lock at 0.4s remaining
+            e.aiTimer -= dt;
+            if (e.aiTimer > 0.4) {
+              const cur = Math.atan2(e.aimY, e.aimX) || Math.atan2(ny, nx);
+              const want = Math.atan2(ny, nx);
+              let da = want - cur;
+              while (da > Math.PI) da -= TAU;
+              while (da < -Math.PI) da += TAU;
+              const na = cur + clamp(da, -1.2 * dt, 1.2 * dt);
+              e.aimX = Math.cos(na);
+              e.aimY = Math.sin(na);
+            }
+            if (e.aiTimer <= 0) {
+              // FIRE the locked beam
+              const len = 520;
+              const relX = g.px - e.x, relY = g.py - e.y;
+              const along = relX * e.aimX + relY * e.aimY;
+              const perp = Math.abs(-relX * e.aimY + relY * e.aimX);
+              if (along > 0 && along < len && perp < 14 + g.playerRadius) {
+                g.hurtPlayer(Math.round(16 * damageScale(g.time)));
+              }
+              g.beams.push({
+                x: e.x, y: e.y, angle: Math.atan2(e.aimY, e.aimX), len,
+                width: 12, life: 0.22, maxLife: 0.22, color: '#ff8f5e',
+              });
+              audio.shoot(4);
+              e.aiState = 2;
+              e.aiTimer = 1.6;
+            }
+          } else {
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0) { e.aiState = 1; e.aiTimer = 1.0; }
+          }
+          break;
+        }
       }
     }
 
@@ -238,6 +404,31 @@ export function updateEnemies(g: Game, dt: number): void {
       e.spawnTimer = 0.4;
     }
   }
+}
+
+function sapperBlast(g: Game, e: Enemy): void {
+  const r = 92;
+  // hurts the player…
+  if ((e.x - g.px) ** 2 + (e.y - g.py) ** 2 < (r + g.playerRadius) ** 2) {
+    g.hurtPlayer(Math.round(24 * damageScale(g.time)));
+  }
+  // …but shreds the horde ×3 — bait it!
+  const near = g.grid.query(e.x, e.y, r + 30);
+  for (let q = near.length - 1; q >= 0; q--) {
+    const o = near[q];
+    if (o === e || o.spawnTimer > 0 || o.hp <= 0) continue;
+    if ((e.x - o.x) ** 2 + (e.y - o.y) ** 2 < (r + o.radius) ** 2) {
+      g.dealDamage(o, 72, { canCrit: false, showNumber: false });
+    }
+  }
+  const ring = g.particles.spawnOrRecycle();
+  ring.kind = ParticleKind.Ring; ring.x = e.x; ring.y = e.y; ring.vx = 0; ring.vy = 0;
+  ring.life = 0.4; ring.maxLife = 0.4; ring.size = r; ring.color = 4;
+  const orb = g.particles.spawnOrRecycle();
+  orb.kind = ParticleKind.Orb; orb.x = e.x; orb.y = e.y; orb.vx = 0; orb.vy = 0;
+  orb.life = 0.3; orb.maxLife = 0.3; orb.size = r * 0.8; orb.color = 4;
+  g.addTrauma(0.25);
+  audio.bigKill();
 }
 
 // ------------------------------------------------------------ worms
@@ -531,6 +722,171 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       }
       break;
     }
+    case EnemyKind.BossNull: {
+      // NULL VECTOR — blinks, then walls of bullets with a single gate
+      const fireWall = (): void => {
+        const wallDir = Math.atan2(g.py - e.y, g.px - e.x);
+        const cos = Math.cos(wallDir), sin = Math.sin(wallDir);
+        const gate = rand(-160, 160);
+        for (let k = -13; k <= 13; k++) {
+          const off = k * 26;
+          if (Math.abs(off - gate) < 37) continue; // the single gate
+          g.spawnEnemyBullet(
+            e.x - sin * off, e.y + cos * off,
+            cos * 160, sin * 160, dmg, 160,
+          );
+        }
+        // gold marker on the gate
+        const gp = g.particles.spawnOrRecycle();
+        gp.kind = ParticleKind.Orb; gp.x = e.x - sin * gate; gp.y = e.y + cos * gate;
+        gp.vx = cos * 160; gp.vy = sin * 160;
+        gp.life = 1.4; gp.maxLife = 1.4; gp.size = 14; gp.color = 3;
+        audio.shoot(2);
+      };
+      const gatedRing = (offset: number): void => {
+        const gateA = e.seed + offset;
+        for (let k = 0; k < 44; k++) {
+          const a = (k / 44) * TAU;
+          let da = Math.abs(a - (gateA % TAU));
+          if (da > Math.PI) da = TAU - da;
+          if (da < 0.38) continue;
+          g.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 150, Math.sin(a) * 150, dmg, 150);
+        }
+        audio.shoot(2);
+      };
+      // WHITEOUT signature at 50% (once)
+      if (mid && e.flockId < 0) {
+        e.flockId = 1;
+        e.aiState = 10;
+        e.aiTimer = 0.8;
+        e.shootTimer = 0;
+        e.seed = Math.random() * TAU;
+        audio.bossWarning();
+      }
+      if (e.aiState === 10) {
+        e.vx *= 0.8; e.vy *= 0.8;
+        e.shootTimer -= dt;
+        if (e.aiTimer > 0) {
+          e.aiTimer -= dt;
+        } else if (e.shootTimer <= 0) {
+          e.seed += 0.7; // gate rotates each ring
+          gatedRing(0);
+          e.shootTimer = 0.8;
+          e.aimX = (e.aimX || 0) + 1;
+          if (e.aimX >= 5) { e.aiState = 0; e.aiTimer = 1.2; e.aimX = 0; }
+        }
+        break;
+      }
+      if (e.aiState === 0) { // blink reposition
+        e.aiTimer -= dt;
+        e.vx *= 0.9; e.vy *= 0.9;
+        if (e.aiTimer <= 0) {
+          const a = Math.random() * TAU;
+          const gp = g.particles.spawnOrRecycle();
+          gp.kind = ParticleKind.Ghost; gp.x = e.x; gp.y = e.y; gp.vx = 0; gp.vy = 0;
+          gp.life = 0.4; gp.maxLife = 0.4; gp.size = e.radius * 0.8; gp.color = 10; gp.rot = 0;
+          e.x = g.px + Math.cos(a) * Math.min(440, g.arenaR * 0.85);
+          e.y = g.py + Math.sin(a) * Math.min(440, g.arenaR * 0.85);
+          e.spawnTimer = 0.25;
+          e.aiState = 1;
+          e.aiTimer = 0.6;
+          audio.shoot(1);
+        }
+      } else if (e.aiState === 1) { // aim + curtain
+        e.vx = 0; e.vy = 0;
+        e.aiTimer -= dt;
+        if (e.aiTimer <= 0) {
+          fireWall();
+          if (enraged) {
+            e.aiState = 1; e.aiTimer = 1.1; // enraged: chained curtains
+            if (Math.random() < 0.4) { e.aiState = 2; e.aiTimer = 1.6; }
+          } else {
+            e.aiState = 2;
+            e.aiTimer = 2.0;
+          }
+        }
+      } else { // drift + snipe
+        e.vx = nx * spd;
+        e.vy = ny * spd;
+        e.aiTimer -= dt;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = 0.9;
+          shotgun(3, 230);
+        }
+        if (e.aiTimer <= 0) { e.aiState = 0; e.aiTimer = 0.4; }
+      }
+      break;
+    }
+    case EnemyKind.BossMonolith: {
+      // THE MONOLITH — the danger is the terrain: rotating beams + mortars
+      const beamCount = e.flockId >= 1 ? 4 : mid ? 3 : 2;
+      const beamLen = Math.max(g.arenaR * 1.05, 520);
+      // GRID LOCKDOWN signature at 40% (once): cross beams that reverse
+      if (e.hp < e.maxHp * 0.4 && e.flockId < 0) {
+        e.flockId = 1;
+        e.aiState = 1;
+        e.aiTimer = 9;
+        e.aimY = 1; // rotation sign
+        audio.bossWarning();
+      }
+      e.vx = nx * spd * (e.aiState === 1 ? 0.4 : 1);
+      e.vy = ny * spd * (e.aiState === 1 ? 0.4 : 1);
+      if (e.aiState === 0) { // telegraph
+        e.aiTimer -= dt;
+        if (e.aiTimer <= 0) {
+          e.aiState = 1;
+          e.aiTimer = e.flockId >= 1 ? 9 : 5;
+          e.shootTimer = 0.3;
+          if (!e.aimY) e.aimY = 1;
+        }
+      } else if (e.aiState === 1) { // beams ON
+        e.aiTimer -= dt;
+        // lockdown: reverse every 2s with a warning flash
+        if (e.flockId >= 1) {
+          e.aimX = (e.aimX ?? 0) + dt;
+          if (e.aimX >= 2) {
+            e.aimX = 0;
+            e.aimY = -e.aimY;
+            g.screenFlash = Math.max(g.screenFlash, 0.25);
+          }
+        }
+        e.angle += 0.55 * e.aimY * dt * (enraged ? 1.25 : 1);
+        // beam vs player
+        if (g.dashTimer <= 0) {
+          for (let b = 0; b < beamCount; b++) {
+            const a = e.angle + (b / beamCount) * TAU;
+            const cos = Math.cos(a), sin = Math.sin(a);
+            const relX = g.px - e.x, relY = g.py - e.y;
+            const along = relX * cos + relY * sin;
+            if (along > e.radius && along < beamLen) {
+              if (Math.abs(-relX * sin + relY * cos) < 10 + g.playerRadius) {
+                g.hurtPlayer(Math.round(dmg * 0.9));
+                break;
+              }
+            }
+          }
+        }
+        // mortar on predicted position
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = enraged ? 0.8 : 1.1;
+          const px = g.px + g.input.moveX * g.stats.speed * 0.5;
+          const py = g.py + g.input.moveY * g.stats.speed * 0.5;
+          g.spawnZone(px + rand(-40, 40), py + rand(-40, 40), 80, 4, 12 * damageScale(g.time), true, 1, 1.1);
+        }
+        if (e.aiTimer <= 0) { e.aiState = 2; e.aiTimer = 1.6; }
+      } else { // rest + shotgun
+        e.aiTimer -= dt;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = 0.6;
+          shotgun(5, 220);
+        }
+        if (e.aiTimer <= 0) { e.aiState = 0; e.aiTimer = 0.8; }
+      }
+      break;
+    }
   }
 
   // keep bosses inside the arena
@@ -573,7 +929,8 @@ export function updateEnemyBullets(g: Game, dt: number): void {
     if (!b.grazed && d2 < (b.radius + GRAZE_RADIUS) ** 2) {
       b.grazed = true;
       g.runGraze++;
-      g.chargeOverdrive(3.5);
+      g.onGrazeFromBullet();
+      g.chargeOverdrive(3.5 * (g.hasCurse('edge') ? 1.75 : 1));
       const p = g.particles.spawnOrRecycle();
       p.kind = ParticleKind.Spark;
       p.x = b.x; p.y = b.y;
@@ -632,11 +989,12 @@ export function updateSpawner(g: Game, dt: number): void {
     * (bossAlive ? 2.6 : 1)
     * (g.endless ? Math.pow(0.93, g.endlessCycle) : 1)
     * (g.surgeTimer > 0 ? 0.42 : 1)
-    * (mut === 'swarm' ? 0.74 : 1);
+    * (mut === 'swarm' ? 0.74 : 1)
+    * (mut === 'tidal' ? 2.6 : 1);
   g.spawnTimer -= dt;
   if (g.spawnTimer <= 0) {
     g.spawnTimer = interval;
-    const batch = wave.batch + (g.endless ? g.endlessCycle : 0);
+    const batch = Math.round((wave.batch + (g.endless ? g.endlessCycle : 0)) * (mut === 'tidal' ? 3.5 : 1));
     let hpMult = hpScale(t);
     if (mut === 'swarm') hpMult *= 0.8;
     if (mut === 'cryo') hpMult *= 1.15;
@@ -646,6 +1004,13 @@ export function updateSpawner(g: Game, dt: number): void {
       if (e) {
         if (mut === 'rich') e.speed *= 1.15;
         else if (mut === 'cryo') e.speed *= 0.88;
+        if (g.beaconAlive && g.hasCurse('defiance')) e.speed *= 1.15;
+        if (e.kind === EnemyKind.Aegis || e.kind === EnemyKind.Pylon) {
+          const d = Math.hypot(g.px - e.x, g.py - e.y) || 1;
+          e.aimX = (g.px - e.x) / d;
+          e.aimY = (g.py - e.y) / d;
+          if (e.kind === EnemyKind.Pylon) e.aiTimer = 3;
+        }
       }
     }
   }
@@ -656,6 +1021,12 @@ export function updateSpawner(g: Game, dt: number): void {
       g.eliteTimer = rand(42, 65) * (mut === 'titan' ? 0.5 : 1) * (g.surgeTimer > 0 ? 0.3 : 1);
       spawnElite(g);
     }
+  }
+
+  // SERPENT GRID: the serpent always re-forms
+  if (mut === 'serpent' && t > 45 && g.worms.length === 0 && !bossAlive) {
+    g.eliteTimer -= dt * 0.5; // reuse spare capacity: spawn soon
+    if (Math.random() < dt / 14) spawnWorm(g);
   }
 
   if (!g.endless && g.eventIdx < EVENTS.length && t >= EVENTS[g.eventIdx].t) {
@@ -683,6 +1054,10 @@ function spawnAtRing(g: Game, kind: EnemyKind, hpMult: number): Enemy | null {
 }
 
 function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
+  // scale the boss def to the slot's HP budget
+  const slot = Math.min(2, g.bossIdx);
+  const slotMult = BOSS_SLOT_HP[slot] / ENEMY_DEFS[kind].hp;
+  extraMult *= Math.max(1, slotMult);
   const a = Math.random() * TAU;
   const r = Math.min(g.viewR * 0.8, 420);
   // arena centers on the player; boss enters from the arena edge

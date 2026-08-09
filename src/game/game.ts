@@ -19,8 +19,9 @@ import {
 } from './data';
 import { profile, metaBonuses, save } from '../meta/save';
 import { BOSS_POOLS } from './data';
-import { fireWeapons, updateProjectiles, updateBlades, updateTurrets } from './weapons';
+import { fireWeapons, updateProjectiles, updateBlades, updateTurrets, updatePrism, flakDashVolley, prismOnGraze, sigilDetonate, sigilAmp } from './weapons';
 import { updateEnemies, updateSpawner, updateEnemyBullets, updateWorms, wormAt, hitWorm } from './enemies';
+// (enemy-bullet grazes call back into onGrazeFromBullet below)
 
 export interface Beam {
   x: number; y: number; angle: number; len: number; width: number;
@@ -73,7 +74,7 @@ function makeEnemy(): Enemy {
     kind: EnemyKind.Chaser, elite: false, affix: Affix.None, xp: 1,
     flashTimer: 0, spawnTimer: 0, hitCd: 0, grazeCd: 0, kbx: 0, kby: 0, kbResist: 0,
     slowTimer: 0, burnTimer: 0, burnDps: 0, chill: 0, frozenTimer: 0, shockTimer: 0,
-    acidTimer: 0, acidDps: 0, bladeCd: 0, dashHitCd: 0, zoneCd: 0,
+    acidTimer: 0, acidDps: 0, bladeCd: 0, dashHitCd: 0, zoneCd: 0, markTimer: 0,
     seed: 0, flockId: -1, aiState: 0, aiTimer: 0, aimX: 0, aimY: 0, shootTimer: 0, angle: 0,
   };
 }
@@ -130,6 +131,13 @@ export class Game {
   chain = 0;
   chainWindow = 0;
   bestChain = 0;
+  grazeBoostTimer = 0; // photon-sweep spin boost window
+  wakeTimer = 0; // slipstream ignited-wake window
+  private dashKilledSomething = false; // Kinetic Debt bookkeeping
+  private dashSigilBoost = false;
+  // ECHO rewind: 4s ring buffer sampled every 0.25s
+  private rewindBuf: { x: number; y: number; hp: number }[] = [];
+  private rewindTimer = 0;
 
   // defiance beacon / surge
   beaconX = 0;
@@ -277,7 +285,8 @@ export class Game {
     this.stats = {
       maxHp: Math.round((100 + m.hp) * hpMult),
       regen: c('berserk') ? 0 : p.regen + 0.8 * lv(PassiveId.Reactor),
-      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1),
+      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1)
+        * (this.wakeTimer > 0 ? 1 + 0.04 * lv(PassiveId.Slipstream) : 1),
       magnet: 118 * (1 + 0.25 * lv(PassiveId.Magnet)) * (c('greed') ? 0.65 : 1),
       armor: p.armor + lv(PassiveId.Plating),
       damageMult: p.dmgMult * (1 + m.dmg) * (1 + 0.09 * lv(PassiveId.Power)) * (c('overcharge') ? 1.35 : 1),
@@ -287,7 +296,7 @@ export class Game {
       critChance: 0.05 + 0.04 * lv(PassiveId.Lucky) + (c('glass') ? 0.25 : 0),
       critMult: 2,
       luck: (1 + 0.15 * lv(PassiveId.Lucky)) * (p.ability === 'anomaly' ? 1.2 : 1),
-      xpMult: 1 + m.xp,
+      xpMult: (1 + m.xp) * (this.mutator.id === 'eclipse' ? 1.25 : 1),
       gemMult: (c('greed') ? 2 : 1) * (this.mutator.id === 'rich' ? 1.4 : 1),
       shardMult: 1 + m.shards,
       damageTakenMult: c('glass') ? 1.25 : 1,
@@ -358,6 +367,7 @@ export class Game {
     updateWorms(this, this.enemyDt(dt));
     this.rebuildGrid();
     updateBlades(this, dt);
+    updatePrism(this, dt);
     updateProjectiles(this, dt);
     updateEnemyBullets(this, this.enemyDt(dt));
     this.contactAndGraze(dt);
@@ -365,6 +375,14 @@ export class Game {
     this.updatePickups(dt);
     updateSpawner(this, dt);
     this.updateHazards(dt);
+    // sigil mark expiry — detonates where the mark dies out
+    for (let i = 0; i < this.enemies.count; i++) {
+      const e = this.enemies.items[i];
+      if (e.markTimer > 0) {
+        e.markTimer -= dt;
+        if (e.markTimer <= 0) sigilDetonate(this, e.x, e.y, false);
+      }
+    }
     this.updateParticles(dt);
     this.updateCamera(dt);
 
@@ -415,6 +433,17 @@ export class Game {
       this.chainWindow -= dt;
       if (this.chainWindow <= 0) this.chain = 0;
     }
+    this.grazeBoostTimer = Math.max(0, this.grazeBoostTimer - dt);
+    this.wakeTimer = Math.max(0, this.wakeTimer - dt);
+    // rewind history
+    if (this.pilot.ability === 'rewind') {
+      this.rewindTimer -= dt;
+      if (this.rewindTimer <= 0) {
+        this.rewindTimer = 0.25;
+        this.rewindBuf.push({ x: this.px, y: this.py, hp: this.hp });
+        if (this.rewindBuf.length > 16) this.rewindBuf.shift();
+      }
+    }
     if (this.overdriveTimer > 0) {
       this.overdriveTimer -= dt;
       if (this.overdriveTimer <= 0) this.overdrive = 0;
@@ -442,6 +471,10 @@ export class Game {
 
     if (this.dashTimer > 0) {
       this.dashTimer -= dt;
+      if (this.dashTimer <= 0 && this.hasCurse('momentum') && !this.dashKilledSomething && !this.god) {
+        this.hp = Math.max(1, this.hp - 6); // Kinetic Debt comes due
+        this.screenFlash = Math.max(this.screenFlash, 0.2);
+      }
       this.px += this.dashDirX * DASH_SPEED * dt;
       this.py += this.dashDirY * DASH_SPEED * dt;
       const g = this.particles.spawnOrRecycle();
@@ -536,6 +569,10 @@ export class Game {
     }
     this.dashDirX = dx;
     this.dashDirY = dy;
+    this.dashKilledSomething = false;
+    flakDashVolley(this, Math.atan2(dy, dx));
+    const slip = this.passives.get(PassiveId.Slipstream) ?? 0;
+    if (slip > 0) this.wakeTimer = 4;
     audio.dash();
     this.haptic(12);
     this.addTrauma(0.12);
@@ -551,15 +588,21 @@ export class Game {
   private dashDamage(): void {
     // dash damage grows with your build AND with the running chain (capped)
     const dmg = 30 * this.dmgMult() * this.stats.dashDamageMult
-      * (1 + Math.min(this.chain, 15) * 0.12 + Math.min(this.level, 30) * 0.04);
+      * (1 + Math.min(this.chain, 15) * 0.12 + Math.min(this.level, 30) * 0.04)
+      * (this.hasCurse('momentum') ? 2 : 1);
     const near = this.grid.query(this.px, this.py, 40);
     for (let i = 0; i < near.length; i++) {
       const e = near[i];
       if (e.dashHitCd > 0 || e.spawnTimer > 0) continue;
       if (dist2(this.px, this.py, e.x, e.y) < (30 + e.radius) ** 2) {
         e.dashHitCd = 0.5;
+        this.dashSigilBoost = e.markTimer > 0;
         const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300, src: 100 });
-        if (killed) this.onDashKill();
+        this.dashSigilBoost = false;
+        if (killed) {
+          this.onDashKill();
+          if (e.markTimer > 0) this.chainWindow += 0.4; // sigil execution extends the window
+        }
       }
     }
     // dash carves through serpents too
@@ -571,11 +614,13 @@ export class Game {
   }
 
   private onDashKill(): void {
+    this.dashKilledSomething = true;
     this.runDashKills++;
     this.chain++;
     this.bestChain = Math.max(this.bestChain, this.chain);
     // the window tightens as the chain grows — deep chains demand mastery
-    this.chainWindow = Math.max(0.72, 1.35 - Math.max(0, this.chain - 10) * 0.035);
+    this.chainWindow = Math.max(0.72, 1.35 - Math.max(0, this.chain - 10) * 0.035)
+      + (this.hasCurse('momentum') ? 0.4 : 0);
     this.hp = Math.min(this.stats.maxHp, this.hp + 1); // aggression heals
     this.chargeOverdrive(2 + this.chain * 0.25);
     this.score += this.chain * 25;
@@ -648,6 +693,57 @@ export class Game {
         audio.dash();
         break;
       }
+      case 'rewind': {
+        const past = this.rewindBuf[0];
+        if (!past) break;
+        // burn the time-trail
+        const steps = 6;
+        for (let k = 0; k < steps; k++) {
+          const t = k / (steps - 1);
+          const tx = this.px + (past.x - this.px) * t;
+          const ty = this.py + (past.y - this.py) * t;
+          const near = this.grid.query(tx, ty, 80);
+          for (let q = near.length - 1; q >= 0; q--) {
+            const e = near[q];
+            if (e.spawnTimer > 0 || e.hp <= 0) continue;
+            if (dist2(tx, ty, e.x, e.y) < (70 + e.radius) ** 2) {
+              this.dealDamage(e, 60 * this.dmgMult(), { canCrit: false, src: 101 });
+            }
+          }
+          const orb = this.particles.spawnOrRecycle();
+          orb.kind = ParticleKind.Orb; orb.x = tx; orb.y = ty; orb.vx = 0; orb.vy = 0;
+          orb.life = 0.4; orb.maxLife = 0.4; orb.size = 40; orb.color = 3;
+        }
+        this.beams.push({
+          x: this.px, y: this.py,
+          angle: Math.atan2(past.y - this.py, past.x - this.px),
+          len: Math.hypot(past.x - this.px, past.y - this.py),
+          width: 20, life: 0.35, maxLife: 0.35, color: '#ffd75e',
+        });
+        this.px = past.x;
+        this.py = past.y;
+        this.hp = Math.min(this.stats.maxHp, Math.max(this.hp, past.hp));
+        this.invuln = Math.max(this.invuln, 0.8);
+        this.screenFlash = Math.max(this.screenFlash, 0.5);
+        this.addTrauma(0.35);
+        audio.overdrive();
+        break;
+      }
+      case 'catalyze': {
+        // every status meets its opposite — mass chemistry
+        for (let i = this.enemies.count - 1; i >= 0; i--) {
+          const e = this.enemies.items[i];
+          if (e.spawnTimer > 0 || e.hp <= 0) continue;
+          if (e.burnTimer > 0) this.applyChill(e, 2);
+          else if (e.chill >= 1 || e.frozenTimer > 0) this.applyBurn(e, 8 * this.dmgMult() * 0.5, 2);
+          else if (e.shockTimer > 0) this.applyAcid(e, 10 * this.dmgMult() * 0.5, 2);
+          else if (e.acidTimer > 0) this.applyShock(e, 0.5);
+        }
+        this.screenFlash = Math.max(this.screenFlash, 0.5);
+        this.addTrauma(0.3);
+        audio.reaction();
+        break;
+      }
       case 'anomaly': {
         const roll = (Math.random() * 4) | 0;
         if (roll === 0) {
@@ -718,8 +814,9 @@ export class Game {
       if (this.surgeTimer <= 0) {
         // survived: payout
         profile.records.surgesCleared = (profile.records.surgesCleared ?? 0) + 1;
-        this.spawnPickup(PickupKind.Chest, this.px + rand(-60, 60), this.py + rand(-60, 60), 1);
-        for (let i = 0; i < 5; i++) this.spawnPickup(PickupKind.Shard, this.px + rand(-90, 90), this.py + rand(-90, 90), 12);
+        const lootMult = this.hasCurse('defiance') ? 2 : 1;
+        for (let c2 = 0; c2 < lootMult; c2++) this.spawnPickup(PickupKind.Chest, this.px + rand(-60, 60), this.py + rand(-60, 60), 1);
+        for (let i = 0; i < 5 * lootMult; i++) this.spawnPickup(PickupKind.Shard, this.px + rand(-90, 90), this.py + rand(-90, 90), 12);
         this.overdrive = 100;
         this.chargeOverdrive(1); // trip it
         this.hooks.surge(false);
@@ -732,7 +829,7 @@ export class Game {
     if (this.arenaActive) return;
     if (!this.beaconAlive) {
       this.beaconTimer -= dt;
-      if (this.beaconTimer <= 0 && this.time > 55) {
+      if (this.beaconTimer <= 0 / (1) && this.time > 55) {
         this.beaconAlive = true;
         const a = Math.random() * TAU;
         this.beaconX = this.px + Math.cos(a) * 300;
@@ -749,7 +846,7 @@ export class Game {
     // beacon waiting: touch it to defy the grid
     if (dist2(this.px, this.py, this.beaconX, this.beaconY) < 46 * 46) {
       this.beaconAlive = false;
-      this.beaconTimer = rand(95, 130);
+      this.beaconTimer = rand(95, 130) * (this.hasCurse('defiance') ? 0.5 : 1);
       this.surgeTimer = 25;
       this.hooks.surge(true);
       this.addTrauma(0.5);
@@ -840,6 +937,12 @@ export class Game {
   // -------- elemental reactions: two statuses on one enemy = chemistry --------
 
   private discoverReaction(name: string): void {
+    profile.records.totalReactions = (profile.records.totalReactions ?? 0) + 1;
+    if (this.hasCurse('alchemy') && this.stats.maxHp > 100 * 0.6) {
+      // Rogue Catalyst burns hull for power — floor at 60% of base
+      this.stats.maxHp = Math.max(Math.round(100 * 0.6), this.stats.maxHp - 2);
+      this.hp = Math.min(this.hp, this.stats.maxHp);
+    }
     if (!this.runReactions.includes(name)) this.runReactions.push(name);
     const isNew = !profile.reactionsSeen.includes(name);
     if (isNew) {
@@ -860,13 +963,13 @@ export class Game {
       e.chill = 0;
       e.frozenTimer = 0;
       this.discoverReaction(REACTIONS.thermal);
-      const r = 95 * this.stats.areaMult;
+      const r = 95 * this.stats.areaMult * (this.hasCurse('alchemy') ? 1.3 : 1);
       const near = this.grid.query(e.x, e.y, r + 30);
       for (let i = near.length - 1; i >= 0; i--) {
         const o = near[i];
         if (o.spawnTimer > 0 || o.hp <= 0) continue;
         if (dist2(e.x, e.y, o.x, o.y) < (r + o.radius) ** 2) {
-          this.dealDamage(o, 55 * s * this.dmgMult(), { canCrit: false });
+          this.dealDamage(o, 55 * s * this.dmgMult() * (this.hasCurse('alchemy') ? 1.8 : 1), { canCrit: false });
         }
       }
       const ring = this.particles.spawnOrRecycle();
@@ -940,6 +1043,14 @@ export class Game {
     }
     if (e.affix === Affix.Armored) dmg *= 0.6;
     if (e.shockTimer > 0) dmg *= 1.2;
+    if (e.markTimer > 0) dmg *= sigilAmp(this);
+    if (this.wakeTimer > 0) dmg *= 1 + 0.05 * (this.passives.get(PassiveId.Slipstream) ?? 0);
+    // Aegis frontal shield: 80% reduction while facing you (dash pierces it)
+    if (e.kind === EnemyKind.Aegis && (opts.src ?? 102) !== 100) {
+      const d = Math.hypot(this.px - e.x, this.py - e.y) || 1;
+      const facing = (e.aimX * (this.px - e.x) + e.aimY * (this.py - e.y)) / d;
+      if (facing > 0.5) dmg *= 0.2;
+    }
     // SHATTER: hitting a frozen enemy breaks the ice for bonus damage
     if (e.frozenTimer > 0) {
       dmg *= 1.75;
@@ -970,6 +1081,12 @@ export class Game {
       n.vy = -60; n.value = Math.round(dmg); n.life = crit ? 0.8 : 0.55; n.crit = crit;
     }
     audio.hit();
+    // Reaper Subroutine: execute low-HP enemies outright
+    const execLvl = this.passives.get(PassiveId.Executioner) ?? 0;
+    if (execLvl > 0 && e.hp > 0 && e.kind < EnemyKind.BossWarden) {
+      const threshold = 0.03 * execLvl * (e.elite ? 0.5 : 1);
+      if (e.hp < e.maxHp * threshold) e.hp = 0;
+    }
     if (e.hp <= 0) {
       this.killEnemy(e);
       return true;
@@ -1019,6 +1136,12 @@ export class Game {
         const a = (k / 8) * TAU;
         this.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 150, Math.sin(a) * 150, 8, 300);
       }
+    }
+    // Hunter Sigil: marked enemies detonate on death
+    if (e.markTimer > 0) {
+      const boost = this.dashSigilBoost;
+      e.markTimer = 0;
+      sigilDetonate(this, e.x, e.y, boost);
     }
     // acid spread (Plague Vats): melted enemies burst into a small pool
     if (e.acidTimer > 0) {
@@ -1108,6 +1231,7 @@ export class Game {
 
   acceptDeal(id: string): void {
     this.curses.push(id);
+    if (id === 'edge') this.playerRadius = 13 * 1.25;
     profile.records.cursesTaken++;
     this.recomputeStats();
     this.hp = Math.min(this.hp, this.stats.maxHp);
@@ -1188,10 +1312,13 @@ export class Game {
   spawnPickup(kind: PickupKind, x: number, y: number, value: number): void {
     const p = this.pickups.spawn();
     if (!p) return;
-    p.kind = kind; p.x = x; p.y = y; p.value = value;
+    p.kind = kind; p.x = x; p.y = y;
+    p.value = kind === PickupKind.Gem && this.mutator.id === 'decay' ? Math.ceil(value * 1.5) : value;
     p.vx = rand(-40, 40); p.vy = rand(-40, 40);
     p.magnetized = false;
-    p.life = kind === PickupKind.Gem || kind === PickupKind.Chest ? -1 : 25;
+    p.life = kind === PickupKind.Gem
+      ? (this.mutator.id === 'decay' ? 9 : -1)
+      : kind === PickupKind.Chest ? -1 : 25;
     p.seed = Math.random() * TAU;
   }
 
@@ -1220,7 +1347,7 @@ export class Game {
     e.flashTimer = 0; e.spawnTimer = 0.6; e.hitCd = 0; e.grazeCd = 0;
     e.kbx = 0; e.kby = 0; e.slowTimer = 0; e.burnTimer = 0; e.burnDps = 0;
     e.chill = 0; e.frozenTimer = 0; e.shockTimer = 0; e.acidTimer = 0; e.acidDps = 0;
-    e.bladeCd = 0; e.dashHitCd = 0; e.zoneCd = 0;
+    e.bladeCd = 0; e.dashHitCd = 0; e.zoneCd = 0; e.markTimer = 0;
     e.seed = Math.random() * TAU;
     e.flockId = -1;
     e.aiState = 0; e.aiTimer = rand(0, 1); e.shootTimer = rand(1, 3); e.angle = 0;
@@ -1333,12 +1460,25 @@ export class Game {
           this.hintGrazeShown = true;
           this.hooks.hint('GRAZE = OVERDRIVE CHARGE ⚡');
         }
-        this.chargeOverdrive(1.4);
+        this.onGraze(e);
+        this.chargeOverdrive(1.4 * (this.hasCurse('edge') ? 1.75 : 1));
         const p = this.particles.spawnOrRecycle();
         p.kind = ParticleKind.Spark;
         p.x = (this.px + e.x) / 2; p.y = (this.py + e.y) / 2;
         p.vx = rand(-60, 60); p.vy = rand(-60, 60);
         p.life = 0.25; p.maxLife = 0.25; p.size = 2; p.color = 3;
+      }
+    }
+  }
+
+  private onGraze(near: Enemy | null): void {
+    this.grazeBoostTimer = 2.5;
+    prismOnGraze(this);
+    if (this.hasCurse('edge')) {
+      const t = near ?? this.nearestEnemy(this.px, this.py, 220);
+      if (t) {
+        this.applyShock(t, 0.3);
+        this.dealDamage(t, 10 * this.dmgMult(), { canCrit: false, showNumber: false });
       }
     }
   }
@@ -1387,6 +1527,10 @@ export class Game {
     ring.kind = ParticleKind.Ring; ring.x = this.px; ring.y = this.py;
     ring.life = 0.6; ring.maxLife = 0.6; ring.size = radius; ring.color = 3; ring.vx = 0; ring.vy = 0;
     this.addTrauma(0.6);
+  }
+
+  onGrazeFromBullet(): void {
+    this.onGraze(null);
   }
 
   chargeOverdrive(amount: number): void {
@@ -1732,6 +1876,8 @@ export class Game {
       bestChain: Math.max(r.bestChain ?? 0, this.bestChain),
       reactionsSeen: profile.reactionsSeen.length,
       surgesCleared: r.surgesCleared ?? 0,
+      runCurses: this.curses.length,
+      totalReactions: r.totalReactions ?? 0,
     };
     for (const a of ACHIEVEMENTS) {
       if (profile.achievements[a.id]) continue;

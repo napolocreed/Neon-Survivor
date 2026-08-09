@@ -4,7 +4,7 @@
 import { Game } from '../game/game';
 import { EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
 import { COLORS, WEAPONS, SECTORS, SHIP_PATHS } from '../game/data';
-import { bladeGeometry } from '../game/weapons';
+import { bladeGeometry, prismGeometry } from '../game/weapons';
 import { clamp, damp, TAU } from '../core/math';
 import { profile } from '../meta/save';
 
@@ -208,6 +208,7 @@ export class Renderer {
     this.drawWorms(g, time);
     this.drawPlayer(g, time);
     this.drawBlades(g);
+    this.drawPrism(g);
     this.drawProjectiles(g, time);
     this.drawBeams(g);
     this.drawBolts(g);
@@ -554,6 +555,11 @@ export class Renderer {
       case EnemyKind.Swarm: return '#ff6b57';
       case EnemyKind.Mini: return '#ff9f45';
       case EnemyKind.Flocker: return '#ffd75e';
+      case EnemyKind.Sapper: return '#ff6a3d';
+      case EnemyKind.Aegis: return '#7a9fff';
+      case EnemyKind.Mender: return '#5eff9f';
+      case EnemyKind.Blinker: return '#9d7aff';
+      case EnemyKind.Pylon: return '#ff8f5e';
       default: return COLORS.enemy;
     }
   }
@@ -656,6 +662,56 @@ export class Renderer {
           ctx.quadraticCurveTo(0, -r, r, 0);
           break;
         }
+        case EnemyKind.Sapper: {
+          // truncated triangle, nose flattened
+          ctx.rotate(e.angle);
+          ctx.moveTo(r * 0.7, r * 0.35);
+          ctx.lineTo(r * 0.7, -r * 0.35);
+          ctx.lineTo(-r, -r * 0.85);
+          ctx.lineTo(-r, r * 0.85);
+          ctx.closePath();
+          break;
+        }
+        case EnemyKind.Aegis:
+          this.poly(5, r, Math.atan2(e.aimY, e.aimX));
+          break;
+        case EnemyKind.Mender:
+          ctx.arc(0, 0, r, 0, TAU);
+          break;
+        case EnemyKind.Blinker: {
+          ctx.rotate(e.angle);
+          ctx.moveTo(r * 1.3, 0);
+          ctx.lineTo(-r * 0.9, r * 0.55);
+          ctx.lineTo(-r * 0.5, 0);
+          ctx.lineTo(-r * 0.9, -r * 0.55);
+          ctx.closePath();
+          break;
+        }
+        case EnemyKind.Pylon: {
+          // anchored base
+          ctx.moveTo(0, -r);
+          ctx.lineTo(r * 0.9, r * 0.7);
+          ctx.lineTo(-r * 0.9, r * 0.7);
+          ctx.closePath();
+          break;
+        }
+        case EnemyKind.BossNull: {
+          ctx.save();
+          ctx.rotate(time * 1.1);
+          ctx.moveTo(r * 1.1, 0); ctx.lineTo(0, r * 0.4); ctx.lineTo(-r * 1.1, 0); ctx.lineTo(0, -r * 0.4);
+          ctx.closePath();
+          ctx.restore();
+          ctx.save();
+          ctx.rotate(-time * 1.1);
+          ctx.moveTo(r * 1.1, 0); ctx.lineTo(0, r * 0.4); ctx.lineTo(-r * 1.1, 0); ctx.lineTo(0, -r * 0.4);
+          ctx.closePath();
+          ctx.restore();
+          break;
+        }
+        case EnemyKind.BossMonolith: {
+          this.poly(4, r, time * 0.1);
+          break;
+        }
         case EnemyKind.BossWarden:
           this.poly(6, r, time * 0.5);
           break;
@@ -729,6 +785,128 @@ export class Renderer {
             ctx.globalAlpha = 1;
             break;
           }
+        }
+      }
+
+      // v5 enemy details & telegraphs
+      if (!flash) {
+        if (e.kind === EnemyKind.Sapper) {
+          const arming = e.aiState === 1;
+          const hz = arming ? 4 + (1 - e.aiTimer / 0.9) * 14 : 2;
+          if (Math.sin(time * hz * TAU) > 0) {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, arming ? 5 : 3, 0, TAU);
+            ctx.fill();
+          }
+          if (arming) {
+            const t = 1 - e.aiTimer / 0.9;
+            ctx.strokeStyle = 'rgba(255,106,61,0.6)';
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, 92, -Math.PI / 2, -Math.PI / 2 + TAU * t);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        } else if (e.kind === EnemyKind.Aegis) {
+          const sa = Math.atan2(e.aimY, e.aimX);
+          ctx.strokeStyle = '#cfe4ff';
+          ctx.lineWidth = 4;
+          ctx.globalAlpha = 0.9;
+          ctx.beginPath();
+          ctx.arc(0, 0, r + 5, sa - 1.05, sa + 1.05);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        } else if (e.kind === EnemyKind.Mender) {
+          ctx.save();
+          ctx.rotate(time * 2);
+          ctx.fillStyle = e.aiState === 1 ? '#ffffff' : color;
+          ctx.fillRect(-r * 0.55, -1.7, r * 1.1, 3.4);
+          ctx.fillRect(-1.7, -r * 0.55, 3.4, r * 1.1);
+          ctx.restore();
+          if (e.aiState === 1) {
+            ctx.strokeStyle = 'rgba(94,255,159,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, 130 * (1 - e.aiTimer / 0.8), 0, TAU);
+            ctx.stroke();
+          }
+        } else if (e.kind === EnemyKind.Pylon) {
+          // rotating head + telegraph lane
+          const ha = Math.atan2(e.aimY, e.aimX);
+          ctx.save();
+          ctx.rotate(ha);
+          ctx.fillStyle = e.aiState === 1 && e.aiTimer <= 0.4 ? '#ffffff' : color;
+          ctx.fillRect(0, -3, r * 1.3, 6);
+          ctx.restore();
+          if (e.aiState === 1) {
+            const locked = e.aiTimer <= 0.4;
+            ctx.strokeStyle = locked ? 'rgba(255,255,255,0.75)' : 'rgba(255,143,94,0.3)';
+            ctx.lineWidth = locked ? 2.5 : 1.5;
+            ctx.beginPath();
+            ctx.moveTo(e.aimX * r, e.aimY * r);
+            ctx.lineTo(e.aimX * 520, e.aimY * 520);
+            ctx.stroke();
+          }
+        } else if (e.kind === EnemyKind.BossMonolith) {
+          // inner contra-rotating square + active beams
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.save();
+          ctx.rotate(-time * 0.25);
+          ctx.strokeRect(-r * 0.5, -r * 0.5, r, r);
+          ctx.restore();
+          if (e.aiState === 1) {
+            const beamCount = e.flockId >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
+            const beamLen = 560;
+            ctx.globalCompositeOperation = 'lighter';
+            for (let b2 = 0; b2 < beamCount; b2++) {
+              const a = e.angle + (b2 / beamCount) * TAU;
+              ctx.save();
+              ctx.rotate(a);
+              ctx.globalAlpha = 0.75;
+              ctx.fillStyle = '#ff8a3d';
+              ctx.fillRect(r * 0.6, -8, beamLen, 16);
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(r * 0.6, -3, beamLen, 6);
+              ctx.restore();
+            }
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+          } else if (e.aiState === 0) {
+            // telegraph thin lines
+            const beamCount = e.flockId >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
+            ctx.strokeStyle = 'rgba(255,138,61,0.35)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
+            for (let b2 = 0; b2 < beamCount; b2++) {
+              const a = e.angle + (b2 / beamCount) * TAU;
+              ctx.beginPath();
+              ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+              ctx.lineTo(Math.cos(a) * 560, Math.sin(a) * 560);
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+          }
+        }
+        // Hunter Sigil mark: rotating brackets + countdown
+        if (e.markTimer > 0) {
+          ctx.strokeStyle = '#b8ff5e';
+          ctx.lineWidth = 2.5;
+          ctx.globalAlpha = 0.9;
+          const mr = r + 10;
+          for (let k2 = 0; k2 < 3; k2++) {
+            const a = time * 3 + (k2 / 3) * TAU;
+            ctx.beginPath();
+            ctx.arc(0, 0, mr, a, a + 1.2);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 0.6;
+          ctx.beginPath();
+          ctx.arc(0, 0, mr + 5, -Math.PI / 2, -Math.PI / 2 + TAU * (e.markTimer / 5));
+          ctx.stroke();
+          ctx.globalAlpha = 1;
         }
       }
 
@@ -1025,6 +1203,36 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  private drawPrism(g: Game): void {
+    const geo = prismGeometry(g);
+    if (!geo) return;
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = 'lighter';
+    for (let b = 0; b < geo.n; b++) {
+      const a = geo.angle + (b / geo.n) * TAU;
+      ctx.save();
+      ctx.translate(g.px, g.py);
+      ctx.rotate(a);
+      // chromatic fringe
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#ff5e7a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(14, -2); ctx.lineTo(geo.len, -2); ctx.stroke();
+      ctx.strokeStyle = '#4df3ff';
+      ctx.beginPath(); ctx.moveTo(14, 2); ctx.lineTo(geo.len, 2); ctx.stroke();
+      // white core (gold when charged)
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = geo.charged ? '#ffd75e' : '#ffffff';
+      ctx.lineWidth = geo.evolved ? 4 : 3;
+      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(geo.len, 0); ctx.stroke();
+      // tip glint
+      this.drawGlow(geo.len, 0, 10, geo.charged ? '#ffd75e' : '#f4f9ff', 0.8);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
   private drawProjectiles(g: Game, time: number): void {
     const ctx = this.ctx;
     ctx.globalCompositeOperation = 'lighter';
@@ -1098,6 +1306,40 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.radius * 0.8 + Math.sin(time * 18) * 1.2, 0, TAU);
           ctx.fill();
+          break;
+        }
+        case WeaponId.Ion: {
+          this.drawGlow(p.x, p.y, p.radius * 2.4, color, 0.55);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(time * 10 + p.seed * 5);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          for (let k = 0; k <= 6; k++) {
+            const a2 = (k / 6) * TAU;
+            if (k === 0) ctx.moveTo(Math.cos(a2) * p.radius, Math.sin(a2) * p.radius);
+            else ctx.lineTo(Math.cos(a2) * p.radius, Math.sin(a2) * p.radius);
+          }
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, 2.5, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+          break;
+        }
+        case WeaponId.Flak: {
+          ctx.globalAlpha = 0.9;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(a);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(5, 0); ctx.lineTo(-3, 2); ctx.lineTo(-3, -2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          ctx.globalAlpha = 1;
           break;
         }
         case WeaponId.Swarm: {
@@ -1327,6 +1569,16 @@ export class Renderer {
     if (g.bulletTime > 0) {
       const a = Math.min(0.14, g.bulletTime * 0.1);
       ctx.fillStyle = `rgba(120,180,255,${a})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // ECLIPSE GRID: the world beyond your halo goes dark
+    if (g.mutator.id === 'eclipse' && g.phase === 'run') {
+      const halo = (330 + (g.overdriveActive ? 60 : 0)) * this.zoom;
+      const eg = ctx.createRadialGradient(w / 2, h / 2, halo * 0.55, w / 2, h / 2, halo);
+      eg.addColorStop(0, 'rgba(2,3,8,0)');
+      eg.addColorStop(1, 'rgba(2,3,8,0.9)');
+      ctx.fillStyle = eg;
       ctx.fillRect(0, 0, w, h);
     }
 
