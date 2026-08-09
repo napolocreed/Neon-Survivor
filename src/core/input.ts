@@ -23,6 +23,9 @@ export class Input {
   moveY = 0;
   /** Set true for one frame-consumer when a dash is requested. */
   private dashQueued = false;
+  /** Screen position of the tap that queued the dash (NaN = keyboard). */
+  dashTapX = NaN;
+  dashTapY = NaN;
 
   // Joystick visual state (screen px)
   joyActive = false;
@@ -93,7 +96,11 @@ export class Input {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-      if (!e.repeat) this.dashQueued = true;
+      if (!e.repeat) {
+        this.dashQueued = true;
+        this.dashTapX = NaN;
+        this.dashTapY = NaN;
+      }
       e.preventDefault();
       return;
     }
@@ -155,14 +162,18 @@ export class Input {
         this.joyStickX = t.clientX;
         this.joyStickY = t.clientY;
         this.joyActive = info.moved;
-        const mag = clamp(Math.hypot(dx, dy) / JOY_MAX, 0, 1);
-        if (mag > 0.01) {
-          const dd = Math.hypot(dx, dy) || 1;
-          this.moveX = (dx / dd) * mag;
-          this.moveY = (dy / dd) * mag;
-        } else {
-          this.moveX = 0;
-          this.moveY = 0;
+        // only steer once the touch is clearly a drag — tap jitter must
+        // never pollute the facing/dash direction
+        if (info.moved) {
+          const mag = clamp(Math.hypot(dx, dy) / JOY_MAX, 0, 1);
+          if (mag > 0.01) {
+            const dd = Math.hypot(dx, dy) || 1;
+            this.moveX = (dx / dd) * mag;
+            this.moveY = (dy / dd) * mag;
+          } else {
+            this.moveX = 0;
+            this.moveY = 0;
+          }
         }
       }
     }
@@ -184,7 +195,11 @@ export class Input {
       if (!info) continue;
       this.taps.delete(t.identifier);
       const quick = performance.now() - info.startTime < TAP_TIME && !info.moved;
-      if (quick) this.dashQueued = true;
+      if (quick) {
+        this.dashQueued = true;
+        this.dashTapX = t.clientX;
+        this.dashTapY = t.clientY;
+      }
       if (this.steerTouch && t.identifier === this.steerTouch.id) {
         this.steerTouch = null;
         this.joyActive = false;

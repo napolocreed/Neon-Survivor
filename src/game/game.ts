@@ -197,6 +197,7 @@ export class Game {
 
   // fx
   camX = 0; camY = 0;
+  renderZoom = 1; // fed back by the renderer (arena zoom) for tap aiming
   trauma = 0;
   timeScale = 1;
   hitStop = 0;
@@ -470,14 +471,31 @@ export class Game {
     this.dashTimer = DASH_TIME;
     // chained dashes get shorter i-frames — long chains demand precision
     this.invuln = Math.max(this.invuln, freeChain ? 0.22 : 0.34);
-    let dx = this.moveDirX;
-    let dy = this.moveDirY;
-    if (this.input.moveX === 0 && this.input.moveY === 0) {
-      const near = this.nearestEnemy(this.px, this.py, 400);
-      if (near) {
-        const d = Math.hypot(near.x - this.px, near.y - this.py) || 1;
-        dx = -(near.x - this.px) / d;
-        dy = -(near.y - this.py) / d;
+    let dx = 0;
+    let dy = 0;
+    // AIMED DASH: dash toward the tapped point (screen → world)
+    if (Number.isFinite(this.input.dashTapX)) {
+      const z = this.renderZoom || 1;
+      const wx = this.camX + (this.input.dashTapX - window.innerWidth / 2) / z;
+      const wy = this.camY + (this.input.dashTapY - window.innerHeight / 2) / z;
+      const ddx = wx - this.px;
+      const ddy = wy - this.py;
+      const d = Math.hypot(ddx, ddy);
+      if (d > 22) {
+        dx = ddx / d;
+        dy = ddy / d;
+      }
+    }
+    if (dx === 0 && dy === 0) {
+      dx = this.moveDirX;
+      dy = this.moveDirY;
+      if (this.input.moveX === 0 && this.input.moveY === 0) {
+        const near = this.nearestEnemy(this.px, this.py, 400);
+        if (near) {
+          const d = Math.hypot(near.x - this.px, near.y - this.py) || 1;
+          dx = -(near.x - this.px) / d;
+          dy = -(near.y - this.py) / d;
+        }
       }
     }
     this.dashDirX = dx;

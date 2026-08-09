@@ -94,29 +94,65 @@ export class Renderer {
 
   // ---------------------------------------------------------------- frame
 
+  /** Title backdrop: starfield above a scrolling synthwave horizon grid. */
   renderAmbient(time: number): void {
     const ctx = this.ctx;
+    const w = this.w;
+    const h = this.h;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = '#05060f';
-    ctx.fillRect(0, 0, this.w, this.h);
-    const camX = time * 18;
-    const camY = time * -7;
+    ctx.fillRect(0, 0, w, h);
+
+    const horizon = h * 0.66;
+
+    // stars (upper region only)
+    const camX = time * 14;
     for (const s of this.stars) {
-      const sx = ((s.x - camX * s.layer) % 2000 + 2000) % 2000 - (2000 - this.w) / 2;
-      const sy = ((s.y - camY * s.layer) % 2000 + 2000) % 2000 - (2000 - this.h) / 2;
-      if (sx < -4 || sx > this.w + 4 || sy < -4 || sy > this.h + 4) continue;
-      const a = 0.25 + 0.2 * Math.sin(time * 2 + s.tw);
-      ctx.fillStyle = `rgba(160,190,255,${a * s.layer * 2.4})`;
+      const sx = ((s.x - camX * s.layer) % 2000 + 2000) % 2000 - (2000 - w) / 2;
+      const sy = ((s.y) % 2000 + 2000) % 2000 - (2000 - h) / 2;
+      if (sx < -4 || sx > w + 4 || sy < -4 || sy > horizon - 14) continue;
+      const a = 0.3 + 0.25 * Math.sin(time * 2 + s.tw);
+      ctx.fillStyle = `rgba(160,190,255,${a * s.layer * 2.6})`;
       ctx.fillRect(sx, sy, s.size, s.size);
     }
-    const grid = 90;
-    const gx = ((-camX % grid) + grid) % grid;
-    const gy = ((-camY % grid) + grid) % grid;
-    ctx.strokeStyle = 'rgba(77,163,255,0.05)';
+
+    // horizon glow
+    ctx.globalCompositeOperation = 'lighter';
+    const hg = ctx.createLinearGradient(0, horizon - 110, 0, horizon + 60);
+    hg.addColorStop(0, 'rgba(77,143,255,0)');
+    hg.addColorStop(0.85, 'rgba(77,183,255,0.15)');
+    hg.addColorStop(1, 'rgba(160,107,255,0.12)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(0, horizon - 110, w, 170);
+    ctx.globalCompositeOperation = 'source-over';
+
+    // perspective grid below the horizon
+    ctx.strokeStyle = 'rgba(77,163,255,0.22)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = gx; x < this.w; x += grid) { ctx.moveTo(x, 0); ctx.lineTo(x, this.h); }
-    for (let y = gy; y < this.h; y += grid) { ctx.moveTo(0, y); ctx.lineTo(this.w, y); }
+    const cx = w / 2;
+    for (let i = -12; i <= 12; i++) {
+      ctx.moveTo(cx + i * 26, horizon);
+      ctx.lineTo(cx + i * w * 0.16, h + 40);
+    }
+    ctx.stroke();
+    // horizontal scan rows, accelerating toward the viewer
+    ctx.beginPath();
+    const scroll = (time * 0.4) % 1;
+    for (let r = 0; r < 14; r++) {
+      const t = (r + scroll) / 14;
+      const y = horizon + t * t * (h - horizon + 50);
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+    }
+    ctx.strokeStyle = 'rgba(77,163,255,0.16)';
+    ctx.stroke();
+    // horizon line
+    ctx.strokeStyle = 'rgba(120,200,255,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, horizon);
+    ctx.lineTo(w, horizon);
     ctx.stroke();
   }
 
@@ -131,6 +167,7 @@ export class Renderer {
     // boss-arena zoom-out
     const zoomTarget = g.arenaActive ? 0.84 : 1;
     this.zoom += (zoomTarget - this.zoom) * damp(3, dt);
+    g.renderZoom = this.zoom; // for tap-aimed dashes
 
     // background base
     ctx.fillStyle = g.overdriveActive ? sector.bgOver : sector.bg;

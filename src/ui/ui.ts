@@ -113,30 +113,43 @@ export class UI {
 
   // ---------------------------------------------------------------- title
 
+  private shipSvg(color: string, size: number): string {
+    return `
+      <svg viewBox="-30 -30 60 60" width="${size}" height="${size}">
+        <g transform="rotate(-90)">
+          <polygon points="24.3,0 -16.2,17.1 -8.1,0 -16.2,-17.1"
+            fill="#0a1220" stroke="${color}" stroke-width="2.6" stroke-linejoin="round"/>
+          <circle cx="3.6" cy="0" r="3.2" fill="#eafeff"/>
+        </g>
+      </svg>`;
+  }
+
   showTitle(): void {
     const r = profile.records;
     const best = r.bestTime > 0
       ? `BEST ${fmtTime(r.bestTime)} · LVL ${r.bestLevel} · ${r.victories > 0 ? `${r.victories} WIN${r.victories > 1 ? 'S' : ''}` : `${r.bestKills} KILLS`}`
       : 'DRAG TO MOVE · TAP TO DASH';
     const achDone = Object.keys(profile.achievements).length;
+    const pilot = PILOTS.find(p => p.id === profile.selectedPilot) ?? PILOTS[0];
     const root = this.show(`
       <div class="screen">
         <div class="title-logo">
+          <div class="title-emblem">${this.shipSvg(pilot.color, 74)}</div>
           <div class="title-neon">NEON</div>
           <div class="title-survivor">SURVIVOR</div>
           <div class="title-tag">${best}</div>
         </div>
         <div class="menu-stack">
-          <div style="text-align:center;margin-bottom:14px">
+          <div style="text-align:center;margin-bottom:12px">
             <span class="shards-chip">◆ ${profile.shards}</span>
           </div>
-          <button class="btn primary" data-a="play">DEPLOY</button>
-          <button class="btn" data-a="pilots">PILOTS</button>
-          <button class="btn" data-a="matrix">NANITE MATRIX</button>
-          <button class="btn" data-a="ach">ACHIEVEMENTS <span class="btn-badge">${achDone}/${ACHIEVEMENTS.length}</span></button>
+          <button class="btn primary" data-a="play">DEPLOY<small>${pilot.name} · ${pilot.abilityName}</small></button>
+          <button class="btn" data-a="pilots">PILOTS<small>${profile.pilots.length}/${PILOTS.length} ships unlocked</small></button>
+          <button class="btn" data-a="matrix">NANITE MATRIX<small>permanent upgrades</small></button>
+          <button class="btn" data-a="ach">ACHIEVEMENTS<small>${achDone}/${ACHIEVEMENTS.length} unlocked</small></button>
           <button class="btn" data-a="settings">SETTINGS</button>
         </div>
-        <div class="hint">Survive 10 minutes. Kill the boss. Become the storm.<br/>Graze bullets to charge OVERDRIVE.</div>
+        <div class="hint">Survive 10 minutes across three sectors.<br/>Dash kills chain. Graze charges OVERDRIVE. You are the bullet.</div>
       </div>
     `);
     this.click(root, '[data-a="play"]', () => this.handlers.startRun());
@@ -237,6 +250,9 @@ export class UI {
   // ---------------------------------------------------------------- pilots
 
   showPilots(): void {
+    const pips = (n: number, max = 5) =>
+      Array.from({ length: max }, (_, i) => `<div class="b ${i < n ? 'on' : ''}"></div>`).join('');
+    const clampPips = (v: number) => Math.max(1, Math.min(5, Math.round(v)));
     const cards = PILOTS.map(p => {
       const unlocked = profile.pilots.includes(p.id);
       const selected = profile.selectedPilot === p.id;
@@ -246,10 +262,17 @@ export class UI {
       return `
         <button class="pilot-card ${selected ? 'selected' : ''}" style="--pc:${p.color}" data-id="${p.id}">
           ${badge}
+          <div class="pilot-ship">${this.shipSvg(p.color, 64)}</div>
           <div class="pilot-name">${p.name}</div>
           <div class="pilot-title">${p.title}</div>
           <div class="pilot-desc">${p.desc}</div>
-          <div class="pilot-ability">⚡ ${p.abilityName} — ${p.abilityDesc} (${p.abilityCd}s)</div>
+          <div class="pilot-stats">
+            <div class="pilot-stat">HULL<div class="bars">${pips(clampPips(p.hpMult * 2.77))}</div></div>
+            <div class="pilot-stat">POWER<div class="bars">${pips(clampPips(p.dmgMult * 3))}</div></div>
+            <div class="pilot-stat">SPEED<div class="bars">${pips(clampPips(p.speedMult * 3.2))}</div></div>
+            <div class="pilot-stat">DASH<div class="bars">${pips(clampPips(p.dashCharges + (p.dashCooldownMult < 1 ? 1 : 0)))}</div></div>
+          </div>
+          <div class="pilot-ability" style="grid-column:2">⚡ ${p.abilityName} — ${p.abilityDesc} (${p.abilityCd}s)</div>
         </button>`;
     }).join('');
     const root = this.show(`
