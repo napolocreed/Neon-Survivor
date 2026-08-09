@@ -1081,6 +1081,21 @@ function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
   e.touchDamage = ENEMY_DEFS[kind].damage * damageScale(g.time);
   e.spawnTimer = 1.2;
   e.aiTimer = 2;
+
+  // The arrival vaporises the rabble. This is theatre, but it is also the fix
+  // for the single most common death in the game: the lockdown used to trap
+  // the entire horde in the ring with the player, so a dozen Spitters kept
+  // firing throughout the fight and bullets piled up past 150 on screen with
+  // nowhere to dodge. Clearing the stage makes the fight legible — it is about
+  // the boss's pattern, which you can learn, not about saturation.
+  for (let i = g.enemies.count - 1; i >= 0; i--) {
+    const o = g.enemies.items[i];
+    if (o === e || o.kind >= EnemyKind.BossWarden) continue;
+    g.killEnemy(o);
+  }
+  g.enemyBullets.clear();
+  g.nukeEffect(g.arenaTargetR);
+
   g.startBossIntro(kind);
 }
 
