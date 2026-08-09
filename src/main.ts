@@ -22,6 +22,8 @@ const params = new URLSearchParams(location.search);
 const startTime = Number(params.get('t') ?? 0) || 0;
 const god = params.has('god');
 const speed = Number(params.get('speed') ?? 1) || 1;
+// Balance harness: skip rendering entirely so runs simulate ~40x faster.
+const sim = params.has('sim');
 
 // Daily runs replace Math.random with a date-seeded stream so every player
 // gets the same protocol, boss rotation and spawns. Cosmetic randomness in
@@ -149,7 +151,7 @@ function frame(now: number): void {
   if (game) {
     game.viewR = renderer.viewRadius() / (game.arenaActive ? 0.84 : 1);
     for (let i = 0; i < speed; i++) game.update(dt);
-    renderer.render(game, now / 1000, dt);
+    if (!sim) renderer.render(game, now / 1000, dt);
   } else {
     ambientT += dt;
     renderer.renderAmbient(ambientT);
