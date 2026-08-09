@@ -193,6 +193,7 @@ export class Game {
   arenaX = 0;
   arenaY = 0;
   arenaR = 0;
+  arenaStartT = 0;
 
   // fx
   camX = 0; camY = 0;
@@ -467,7 +468,8 @@ export class Game {
       this.dashCharges--;
     }
     this.dashTimer = DASH_TIME;
-    this.invuln = Math.max(this.invuln, 0.34);
+    // chained dashes get shorter i-frames — long chains demand precision
+    this.invuln = Math.max(this.invuln, freeChain ? 0.22 : 0.34);
     let dx = this.moveDirX;
     let dy = this.moveDirY;
     if (this.input.moveX === 0 && this.input.moveY === 0) {
@@ -493,9 +495,9 @@ export class Game {
   }
 
   private dashDamage(): void {
-    // dash damage grows with your build AND with the running chain
+    // dash damage grows with your build AND with the running chain (capped)
     const dmg = 30 * this.dmgMult() * this.stats.dashDamageMult
-      * (1 + this.chain * 0.12 + this.level * 0.04);
+      * (1 + Math.min(this.chain, 15) * 0.12 + Math.min(this.level, 30) * 0.04);
     const near = this.grid.query(this.px, this.py, 40);
     for (let i = 0; i < near.length; i++) {
       const e = near[i];
@@ -518,7 +520,8 @@ export class Game {
     this.runDashKills++;
     this.chain++;
     this.bestChain = Math.max(this.bestChain, this.chain);
-    this.chainWindow = 1.35;
+    // the window tightens as the chain grows — deep chains demand mastery
+    this.chainWindow = Math.max(0.72, 1.35 - Math.max(0, this.chain - 10) * 0.035);
     this.hp = Math.min(this.stats.maxHp, this.hp + 1); // aggression heals
     this.chargeOverdrive(2 + this.chain * 0.25);
     this.score += this.chain * 25;

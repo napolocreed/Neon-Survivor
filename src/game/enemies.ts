@@ -373,9 +373,11 @@ export function spawnWorm(g: Game): void {
 
 function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist: number): void {
   e.aiTimer -= dt;
-  const enraged = e.hp < e.maxHp * 0.33;
-  const mid = e.hp < e.maxHp * 0.66;
-  const spd = e.speed * (enraged ? 1.3 : 1);
+  // fights that drag past 40s escalate — no camping the arena on add-farm
+  const drag = g.arenaActive ? clamp((g.time - g.arenaStartT - 40) / 50, 0, 1) : 0;
+  const enraged = e.hp < e.maxHp * 0.33 || drag >= 1;
+  const mid = e.hp < e.maxHp * 0.66 || drag > 0.4;
+  const spd = e.speed * (enraged ? 1.3 : 1) * (1 + drag * 0.5);
   const dmg = e.touchDamage * 0.55;
 
   const ring = (count: number, speed: number, offset = 0): void => {
@@ -568,7 +570,7 @@ export function updateSpawner(g: Game, dt: number): void {
       audio.bossWarning();
       g.haptic(30);
     }
-    if (t >= next.t) {
+    if (t >= next.t && !bossAlive) { // never stack two bosses
       spawnBoss(g, next.kind, 1);
       g.bossIdx++;
       g.bossWarnAt = -1;
@@ -657,6 +659,7 @@ function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
   g.arenaX = g.px;
   g.arenaY = g.py;
   g.arenaR = Math.min(g.viewR * 1.02, 520);
+  g.arenaStartT = g.time;
   const e = g.spawnEnemyAt(kind, g.px + Math.cos(a) * r, g.py + Math.sin(a) * r, extraMult);
   if (!e) {
     g.arenaActive = false;
