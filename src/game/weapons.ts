@@ -157,7 +157,17 @@ function firePulseVolley(g: Game, w: WeaponState): void {
     p.homing = 0; p.targetIdx = -1; p.hitCd = 0; p.phase = 0; p.knockback = 90;
     p.seed = Math.random();
   }
+  muzzleFlash(g, baseAngle, WEAPONS[WeaponId.Pulse].color);
   audio.shoot(0);
+}
+
+function muzzleFlash(g: Game, angle: number, _color: string): void {
+  const m = g.particles.spawnOrRecycle();
+  m.kind = ParticleKind.Orb;
+  m.x = g.px + Math.cos(angle) * 20;
+  m.y = g.py + Math.sin(angle) * 20;
+  m.vx = 0; m.vy = 0;
+  m.life = 0.09; m.maxLife = 0.09; m.size = 13; m.color = 6;
 }
 
 function fireTesla(g: Game, w: WeaponState): void {
@@ -358,6 +368,7 @@ function fireCryo(g: Game, w: WeaponState): void {
     p.knockback = 40;
     p.seed = Math.random();
   }
+  muzzleFlash(g, baseAngle, WEAPONS[WeaponId.Cryo].color);
   // Glacier Storm: periodic freezing nova
   if (w.evolved) {
     w.angle += 1;

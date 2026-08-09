@@ -73,6 +73,8 @@ function startRun(): void {
   game.camX = game.px;
   game.camY = game.py;
   ui.buildHud(game.pilot.abilityName);
+  const mutEl = document.getElementById('h-mutator');
+  if (mutEl && game.mutator.id !== 'null') mutEl.textContent = `▦ ${game.mutator.name}`;
   // intro: warp-in flash + sector & protocol banners
   game.screenFlash = 1;
   game.invuln = 1.2;

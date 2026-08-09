@@ -461,6 +461,10 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       break;
     }
     case EnemyKind.BossOmega: {
+      // final phase: the arena itself closes in
+      if (enraged && g.arenaActive && g.arenaR > 250) {
+        g.arenaR -= 22 * dt;
+      }
       if (e.aiState === 0) {
         e.vx = nx * spd; e.vy = ny * spd;
         if (e.aiTimer <= 0) { e.aiState = 1; e.aiTimer = 1.4; e.shootTimer = 0; e.seed = 0; }

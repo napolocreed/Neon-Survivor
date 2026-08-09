@@ -12,6 +12,7 @@ import { profile } from '../meta/save';
 const PALETTE = [
   '#4df3ff', '#ff3860', '#ffb02e', '#ffd75e', '#ff9f45',
   '#ff5e7a', '#ffffff', '#7ad7ff', '#9fff45', '#ff7ad7',
+  '#c46bff',
 ];
 
 const ZONE_COLORS: Record<number, string> = {
@@ -629,6 +630,59 @@ export class Renderer {
       ctx.fill();
       ctx.stroke();
       ctx.globalAlpha = 1;
+
+      // living details & readable telegraphs
+      if (!flash && e.frozenTimer <= 0) {
+        switch (e.kind) {
+          case EnemyKind.Chaser: {
+            const pulse = 0.5 + 0.5 * Math.sin(time * 5 + e.seed * 3);
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.35 + pulse * 0.5;
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.3, 0, TAU);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            break;
+          }
+          case EnemyKind.Tank: {
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = 0.7;
+            ctx.lineWidth = 2;
+            for (let k = 0; k < 3; k++) {
+              const a = -time * 1.2 + (k / 3) * TAU;
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.55, a, a + 1.2);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            break;
+          }
+          case EnemyKind.Spitter: {
+            // visible charge-up: the core swells right before it fires
+            const charge = clamp(1 - e.shootTimer / 1.0, 0, 1);
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.4 + charge * 0.6;
+            ctx.beginPath();
+            ctx.arc(0, 0, 2 + charge * r * 0.45, 0, TAU);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            break;
+          }
+          case EnemyKind.Splitter: {
+            // the minis inside are visible — the split is telegraphed
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.55;
+            for (let k = 0; k < 3; k++) {
+              const a = time * 0.9 + e.seed + (k / 3) * TAU;
+              ctx.beginPath();
+              ctx.arc(Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, r * 0.2, 0, TAU);
+              ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            break;
+          }
+        }
+      }
 
       // status decals
       if (e.frozenTimer > 0) {

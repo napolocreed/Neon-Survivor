@@ -15,6 +15,8 @@ class AudioEngine {
 
   // --- music state ---
   private musicPlaying = false;
+  private musicFilter: BiquadFilterNode | null = null;
+  private lastIntensity = -1;
   private schedTimer: number | null = null;
   private nextNoteTime = 0;
   private step = 0; // 16th-note step counter
@@ -47,7 +49,13 @@ class AudioEngine {
 
     this.musicBus = this.ctx.createGain();
     this.musicBus.gain.value = 0.4;
-    this.musicBus.connect(comp);
+    // intensity-driven low-pass: the mix opens up as the run heats up
+    this.musicFilter = this.ctx.createBiquadFilter();
+    this.musicFilter.type = 'lowpass';
+    this.musicFilter.frequency.value = 1400;
+    this.musicFilter.Q.value = 0.8;
+    this.musicBus.connect(this.musicFilter);
+    this.musicFilter.connect(comp);
 
     // shared noise buffer
     const len = this.ctx.sampleRate;
@@ -274,11 +282,20 @@ class AudioEngine {
 
   setMusicEnabled(on: boolean): void {
     this.musicEnabled = on;
-    if (this.musicBus) this.musicBus.gain.value = on ? 0.4 : 0;
+    if (this.musicBus && this.ctx) {
+      this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.musicBus.gain.setValueAtTime(on ? 0.4 : 0, this.ctx.currentTime);
+    }
   }
 
   private schedule(): void {
     if (!this.ctx || !this.musicPlaying) return;
+    // sweep the filter when intensity shifts
+    if (this.intensity !== this.lastIntensity && this.musicFilter) {
+      this.lastIntensity = this.intensity;
+      const cutoff = [900, 2400, 5200, 12000][Math.min(3, Math.max(0, this.intensity))];
+      this.musicFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.6);
+    }
     const secPer16 = 60 / this.tempo / 4;
     while (this.nextNoteTime < this.ctx.currentTime + 0.12) {
       this.playStep(this.step, this.nextNoteTime);
@@ -325,14 +342,22 @@ class AudioEngine {
     const root = roots[(this.barOfPhrase >> 1) & 3];
     const lvl = this.intensity;
 
-    // kick on quarters (always, quiet in menu)
+    // kick on quarters (always, quiet in menu) + sidechain-style duck
     if (s % 4 === 0) {
       this.mTone(150, 0.14, 'sine', lvl === 0 ? 0.12 : 0.3, t, 40);
+      if (lvl >= 1 && this.musicBus && this.musicEnabled) {
+        const g = this.musicBus.gain;
+        g.setTargetAtTime(0.26, t, 0.015);
+        g.setTargetAtTime(0.4, t + 0.06, 0.09);
+      }
     }
-    // bass: 8th-note pulse
-    if (lvl >= 1 && s % 2 === 0) {
-      const octave = s % 8 === 4 ? 2 : 1;
-      this.mTone(root * octave, 0.13, 'sawtooth', 0.14, t);
+    // bass: driving synthwave line with octave pops and a pickup note
+    if (lvl >= 1) {
+      const bassPat = [1, 0, 1, 1, 0, 1, 0, 2, 1, 0, 1, 1, 0, 2, 0, 0.5];
+      const b = bassPat[s];
+      if (b > 0) {
+        this.mTone(root * (b === 2 ? 2 : 1) * (b === 0.5 ? 1.5 : 1), 0.11, 'sawtooth', 0.15, t);
+      }
     }
     // arp: 16ths at lvl>=2
     if (lvl >= 2) {
@@ -346,9 +371,12 @@ class AudioEngine {
     if (lvl >= 1 && (s % 2 === (lvl >= 3 ? 0 : 1) || lvl >= 3)) {
       this.mNoise(0.03, lvl >= 3 ? 0.09 : 0.06, 8000, t);
     }
-    // snare on 2 & 4 at lvl>=2
+    // snare on 2 & 4 at lvl>=2, with a roll-fill closing every 8-bar phrase
     if (lvl >= 2 && (s === 4 || s === 12)) {
       this.mNoise(0.09, 0.16, 2000, t);
+    }
+    if (lvl >= 2 && this.barOfPhrase === 7 && s >= 12) {
+      this.mNoise(0.05, 0.1 + (s - 12) * 0.03, 2400 + s * 100, t);
     }
     // pad swell at bar starts
     if (s === 0 && (this.barOfPhrase & 1) === 0) {

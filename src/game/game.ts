@@ -35,6 +35,7 @@ export interface RunStats {
   shardsFromScore: number; shardsPicked: number; bossKills: number;
   maxCombo: number; pilotName: string; victory: boolean; endless: boolean;
   bestChain: number; reactionsFound: string[]; mutatorName: string;
+  rank: string;
 }
 
 export interface GameHooks {
@@ -138,6 +139,7 @@ export class Game {
 
   mutator: MutatorDef = MUTATORS[0];
   runReactions: string[] = [];
+  private levelUpArmed = false;
   private killMilestone = 250;
   private hintDashShown = false;
   private hintChainShown = false;
@@ -375,9 +377,16 @@ export class Game {
       this.hooks.hint('TAP ANYWHERE = DASH');
     }
 
+    // level-up: dip into slow-motion first, then open the draft
     if (this.pendingLevelUps > 0) {
-      this.pendingLevelUps--;
-      this.openLevelUp();
+      if (this.hitStop <= 0 && this.timeScale > 0.9) {
+        this.hitStop = 0.16; // graceful dip
+        this.levelUpArmed = true;
+      } else if (this.levelUpArmed && this.hitStop <= 0.02) {
+        this.levelUpArmed = false;
+        this.pendingLevelUps--;
+        this.openLevelUp();
+      }
     }
     this.hooks.hud();
   }
@@ -496,6 +505,28 @@ export class Game {
           dx = -(near.x - this.px) / d;
           dy = -(near.y - this.py) / d;
         }
+      }
+    } else {
+      // aim assist: snap onto an enemy close to the dash line (fat fingers)
+      const dashAngle = Math.atan2(dy, dx);
+      let bestDiff = 0.46;
+      let snapA = NaN;
+      for (let i = 0; i < this.enemies.count; i++) {
+        const e = this.enemies.items[i];
+        if (e.spawnTimer > 0) continue;
+        const d2e = dist2(this.px, this.py, e.x, e.y);
+        if (d2e < 28 * 28 || d2e > 260 * 260) continue;
+        const a = Math.atan2(e.y - this.py, e.x - this.px);
+        let diff = Math.abs(a - dashAngle);
+        if (diff > Math.PI) diff = TAU - diff;
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          snapA = a;
+        }
+      }
+      if (Number.isFinite(snapA)) {
+        dx = Math.cos(snapA);
+        dy = Math.sin(snapA);
       }
     }
     this.dashDirX = dx;
@@ -1082,7 +1113,14 @@ export class Game {
     this.phase = 'run';
   }
 
+  private static DEATH_COLOR: Record<number, number> = {
+    [EnemyKind.Chaser]: 1, [EnemyKind.Swarm]: 1, [EnemyKind.Tank]: 4,
+    [EnemyKind.Dasher]: 9, [EnemyKind.Spitter]: 10, [EnemyKind.Splitter]: 4,
+    [EnemyKind.Mini]: 4, [EnemyKind.Weaver]: 5, [EnemyKind.Flocker]: 3,
+  };
+
   spawnDeathFx(e: Enemy, big: boolean): void {
+    const hue = e.elite ? 2 : Game.DEATH_COLOR[e.kind] ?? 1;
     const n = big ? 16 : 7;
     for (let i = 0; i < n; i++) {
       const p = this.particles.spawnOrRecycle();
@@ -1093,16 +1131,20 @@ export class Game {
       p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp;
       p.life = rand(0.3, big ? 0.9 : 0.55); p.maxLife = p.life;
       p.size = rand(1.5, big ? 5 : 3);
-      p.color = e.elite ? 2 : 1;
+      p.color = hue;
       p.rot = Math.random() * TAU; p.vrot = rand(-8, 8);
     }
     const ring = this.particles.spawnOrRecycle();
     ring.kind = ParticleKind.Ring; ring.x = e.x; ring.y = e.y;
     ring.vx = 0; ring.vy = 0; ring.life = big ? 0.5 : 0.3; ring.maxLife = ring.life;
-    ring.size = e.radius * (big ? 3.2 : 2); ring.color = e.elite ? 2 : 1;
+    ring.size = e.radius * (big ? 3.2 : 2); ring.color = hue;
     const glow = this.particles.spawnOrRecycle();
     glow.kind = ParticleKind.Orb; glow.x = e.x; glow.y = e.y; glow.vx = 0; glow.vy = 0;
-    glow.life = 0.35; glow.maxLife = 0.35; glow.size = e.radius * 2.4; glow.color = e.elite ? 2 : 1;
+    glow.life = 0.35; glow.maxLife = 0.35; glow.size = e.radius * 2.4; glow.color = hue;
+    // white flash core — the "pop"
+    const core = this.particles.spawnOrRecycle();
+    core.kind = ParticleKind.Orb; core.x = e.x; core.y = e.y; core.vx = 0; core.vy = 0;
+    core.life = 0.12; core.maxLife = 0.12; core.size = e.radius * 1.5; core.color = 6;
   }
 
   private dropLoot(e: Enemy): void {
@@ -1704,11 +1746,16 @@ export class Game {
     const picked = this.shardsPicked - this.pickedBanked;
     this.scoreBanked = this.score;
     this.pickedBanked = this.shardsPicked;
+    // arcade rank: survival carries it, style (chains + combo) bumps it
+    let rankIdx = victory ? 5 : this.time >= 480 ? 4 : this.time >= 360 ? 3 : this.time >= 230 ? 2 : this.time >= 120 ? 1 : 0;
+    if (!victory && this.bestChain >= 12 && this.maxCombo >= 120) rankIdx = Math.min(4, rankIdx + 1);
+    const rank = (this.endless && victory) ? 'S+' : ['D', 'C', 'B', 'A', 'A+', 'S'][rankIdx];
     const stats: RunStats = {
       time: this.time, kills: this.kills, level: this.level, score: Math.round(this.score),
       shardsFromScore, shardsPicked: picked, bossKills: this.bossKills,
       maxCombo: this.maxCombo, pilotName: this.pilot.name, victory, endless: this.endless,
       bestChain: this.bestChain, reactionsFound: this.runReactions, mutatorName: this.mutator.name,
+      rank,
     };
     profile.shards += shardsFromScore + picked;
     profile.records.runs++;
@@ -1718,6 +1765,8 @@ export class Game {
     profile.records.bestScore = Math.max(profile.records.bestScore, Math.round(this.score));
     profile.records.bestCombo = Math.max(profile.records.bestCombo, this.maxCombo);
     profile.records.bestChain = Math.max(profile.records.bestChain ?? 0, this.bestChain);
+    if (!profile.records.pilotBest) profile.records.pilotBest = {};
+    profile.records.pilotBest[this.pilot.id] = Math.max(profile.records.pilotBest[this.pilot.id] ?? 0, Math.floor(this.time));
     if (this.endless) profile.records.endlessTime = Math.max(profile.records.endlessTime, Math.floor(this.time));
     if (victory) {
       profile.records.victories++;

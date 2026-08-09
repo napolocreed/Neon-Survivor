@@ -19,6 +19,7 @@ export interface Records {
   endlessTime: number;
   bestChain: number;
   surgesCleared: number;
+  pilotBest?: Record<string, number>;
 }
 
 export interface Settings {

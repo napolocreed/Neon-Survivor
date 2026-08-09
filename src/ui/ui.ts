@@ -264,7 +264,7 @@ export class UI {
           ${badge}
           <div class="pilot-ship">${this.shipSvg(p.color, 64)}</div>
           <div class="pilot-name">${p.name}</div>
-          <div class="pilot-title">${p.title}</div>
+          <div class="pilot-title">${p.title}${(profile.records.pilotBest?.[p.id] ?? 0) > 0 ? ` · BEST ${fmtTime(profile.records.pilotBest![p.id])}` : ''}</div>
           <div class="pilot-desc">${p.desc}</div>
           <div class="pilot-stats">
             <div class="pilot-stat">HULL<div class="bars">${pips(clampPips(p.hpMult * 2.77))}</div></div>
@@ -377,6 +377,7 @@ export class UI {
         <div class="hud-stat" style="color:var(--gold)">◆ <b id="h-shards">0</b></div>
       </div>
       <div class="hud-level" id="h-level">LVL 1</div>
+      <div class="hud-mutator" id="h-mutator"></div>
       <button class="hud-pause" id="h-pause">⏸</button>
       <div class="hud-boss" id="h-boss" style="display:none">
         <div class="hud-boss-name" id="h-boss-name"></div>
@@ -652,6 +653,7 @@ export class UI {
       <div class="screen">
         <div class="over-title ${isWin ? 'win' : 'dead'}">${isWin ? 'SECTOR CLEARED' : 'SIGNAL LOST'}</div>
         <div class="over-sub">${isWin ? 'OMEGA PRIME DESTROYED — THE GRID IS YOURS' : `${stats.pilotName} · SURVIVED ${fmtTime(stats.time)}`}</div>
+        <div class="rank-badge rank-${stats.rank.replace('+', 'p')}">${stats.rank}</div>
         ${newRecord ? '<div class="record-flag">★ NEW BEST SCORE</div>' : ''}
         <div class="over-mutator">${stats.mutatorName}</div>
         <div class="stats-grid">
