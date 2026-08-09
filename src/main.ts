@@ -53,6 +53,7 @@ function makeHooks(): GameHooks {
       ui.showEnd(game!, stats);
     },
     bossWarn: name => ui.toast(`⚠ ${name} INBOUND ⚠`, 'warn'),
+    bossIntro: (name, title) => ui.bossIntro(name, title),
     bossBar: (name, frac, visible) => ui.setBossBar(name, frac, visible),
     evolved: name => ui.toast(`★ ${name} ★`, 'evo'),
     overdrive: () => ui.toast('⚡ OVERDRIVE ⚡', 'od'),
@@ -156,5 +157,9 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
-ui.showTitle();
+if (profile.records.runs === 0 && Object.keys(profile.meta).length === 0) {
+  ui.showBriefing(true); // first launch: teach the depth before the first drop
+} else {
+  ui.showTitle();
+}
 requestAnimationFrame(frame);

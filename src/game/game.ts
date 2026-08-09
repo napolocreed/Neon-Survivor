@@ -14,6 +14,7 @@ import {
   TurretState, Worm, CurseDef,
 } from './types';
 import {
+  BOSS_NAMES, BOSS_TITLES,
   WEAPONS, PASSIVES, PILOTS, PilotDef, xpForLevel, COLORS, ENEMY_DEFS,
   CURSES, SECTORS, ACHIEVEMENTS, damageScale, MUTATORS, MutatorDef, REACTIONS, hpScale,
   rollMutator, mutatorSeed,
@@ -48,6 +49,7 @@ export interface GameHooks {
   gameOver(stats: RunStats): void;
   victory(stats: RunStats): void;
   bossWarn(name: string): void;
+  bossIntro(name: string, title: string): void;
   bossBar(name: string, frac: number, visible: boolean): void;
   evolved(name: string): void;
   overdrive(): void;
@@ -211,7 +213,9 @@ export class Game {
   arenaX = 0;
   arenaY = 0;
   arenaR = 0;
+  arenaTargetR = 0;
   arenaStartT = 0;
+  bossIntroTimer = 0; // cinematic name-card beat
 
   // fx
   camX = 0; camY = 0;
@@ -335,7 +339,11 @@ export class Game {
 
   update(rawDt: number): void {
     if (this.phase !== 'run') return;
-    if (this.hitStop > 0) {
+    if (this.bossIntroTimer > 0) {
+      // name-card beat: the world crawls while the boss makes its entrance
+      this.bossIntroTimer -= rawDt;
+      this.timeScale = 0.22;
+    } else if (this.hitStop > 0) {
       this.hitStop -= rawDt;
       this.timeScale = 0.05;
     } else {
@@ -493,7 +501,10 @@ export class Game {
       this.moveDirY = inp.moveY / m;
     }
 
-    // arena walls
+    // arena walls sweep inward during the intro
+    if (this.arenaActive && this.arenaR > this.arenaTargetR) {
+      this.arenaR = Math.max(this.arenaTargetR, this.arenaR - 900 * dt);
+    }
     if (this.arenaActive) {
       const dx = this.px - this.arenaX;
       const dy = this.py - this.arenaY;
@@ -804,6 +815,15 @@ export class Game {
         }
       }
     }
+  }
+
+  /** Called when a boss materializes: freeze-frame + name card. */
+  startBossIntro(kind: EnemyKind): void {
+    this.bossIntroTimer = 1.9;
+    this.screenFlash = Math.max(this.screenFlash, 0.7);
+    this.addTrauma(0.5);
+    this.haptic(45);
+    this.hooks.bossIntro(BOSS_NAMES[kind] ?? 'UNKNOWN', BOSS_TITLES[kind] ?? '');
   }
 
   // ------------------------------------------------------------ defiance beacon

@@ -326,6 +326,15 @@ export const BOSS_NAMES: Record<number, string> = {
   [EnemyKind.BossMonolith]: 'THE MONOLITH',
 };
 
+/** Name-card epithets — each one tells you how the fight will hurt. */
+export const BOSS_TITLES: Record<number, string> = {
+  [EnemyKind.BossWarden]: 'KEEPER OF THE FIRST GATE',
+  [EnemyKind.BossSeraph]: 'NINE WINGS · NINE GUNS',
+  [EnemyKind.BossOmega]: 'THE LAST ADMINISTRATOR',
+  [EnemyKind.BossNull]: 'IT DELETES THE SPACE YOU STAND IN',
+  [EnemyKind.BossMonolith]: 'THE FLOOR IS ITS WEAPON',
+};
+
 export const WORM = {
   hp: 900, // head hp, scaled by hpScale
   segCount: 12,

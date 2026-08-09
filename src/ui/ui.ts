@@ -110,6 +110,21 @@ export class UI {
     setTimeout(() => el.remove(), 2700);
   }
 
+  /** Full-screen boss name card — the entrance beat. */
+  bossIntro(name: string, title: string): void {
+    // the entrance owns the screen — clear any banner still fading out
+    this.hud.querySelectorAll('.toast, .hint-pop').forEach(t => t.remove());
+    const el = document.createElement('div');
+    el.className = 'boss-card';
+    el.innerHTML = `
+      <div class="boss-card-rule"></div>
+      <div class="boss-card-name">${name}</div>
+      <div class="boss-card-title">${title}</div>
+      <div class="boss-card-rule"></div>`;
+    this.hud.appendChild(el);
+    setTimeout(() => el.remove(), 2600);
+  }
+
   hintToast(text: string): void {
     const el = document.createElement('div');
     el.className = 'hint-pop';
@@ -352,6 +367,42 @@ export class UI {
     });
   }
 
+  // ---------------------------------------------------------------- briefing
+
+  showBriefing(firstTime = false): void {
+    const card = (icon: string, title: string, body: string, accent = 'var(--cyan)') => `
+      <div class="brief-card">
+        <div class="brief-icon" style="color:${accent}">${icon}</div>
+        <div>
+          <div class="brief-title" style="color:${accent}">${title}</div>
+          <div class="brief-body">${body}</div>
+        </div>
+      </div>`;
+    const root = this.show(`
+      <div class="screen">
+        ${firstTime ? '' : `<div class="back-row"><button class="back-btn" data-a="back">‹ BACK</button></div>`}
+        <div class="screen-title">${firstTime ? 'PILOT BRIEFING' : 'HOW TO PLAY'}</div>
+        <div class="screen-sub">Weapons fire themselves. Your job is to dance.</div>
+        <div class="brief-list">
+          ${card('⇢', 'DRAG TO MOVE', 'Touch anywhere and drag — the stick follows your thumb. Guns aim and fire on their own.')}
+          ${card('⊙', 'TAP TO DASH', 'A quick tap dashes <b>toward that point</b>. You are invulnerable mid-dash and you damage everything you phase through.')}
+          ${card('⚡', 'DASH KILLS CHAIN', 'Kill with a dash and the next dash is <b>free</b> for a moment. Chain them: each link heals you, hits harder and floods Overdrive. This is the game.', '#4df3ff')}
+          ${card('◈', 'GRAZE FOR OVERDRIVE', 'Skim past enemies and bullets without being hit to charge OVERDRIVE — seven golden seconds of speed, damage and magnetism.', '#ffd75e')}
+          ${card('☄', 'ELEMENTS REACT', 'Two different statuses on one enemy trigger chemistry. Burn + Chill detonates. Chill + Shock spreads the freeze. Shock + Acid arcs. Burn + Acid ignites the pool.', '#9fff45')}
+          ${card('★', 'EVOLVE YOUR ARSENAL', 'Max a weapon and own its paired passive, then take the legendary card. Every weapon has one.', '#ffd75e')}
+          ${card('⚠', 'DEFY THE GRID', 'Red beacons are optional. Touch one to trigger 25 seconds of hell for a guaranteed reward. Bosses offer CURSED TECH — real power for a real price.', '#ff5e7a')}
+        </div>
+        <button class="btn primary" data-a="go">${firstTime ? 'DEPLOY' : 'UNDERSTOOD'}</button>
+      </div>
+    `);
+    this.click(root, '[data-a="back"]', () => { audio.ui(); this.showTitle(); });
+    this.click(root, '[data-a="go"]', () => {
+      audio.ui();
+      if (firstTime) this.handlers.startRun(false);
+      else this.showTitle();
+    });
+  }
+
   // ---------------------------------------------------------------- daily
 
   showDaily(): void {
@@ -584,7 +635,8 @@ export class UI {
           Best score <b>${r.bestScore}</b><br/>
           Victories <b>${r.victories}</b>
         </div>
-        <button class="btn danger" style="margin-top:18px" data-a="reset">RESET ALL DATA</button>
+        <button class="btn" style="margin-top:18px" data-a="brief">HOW TO PLAY</button>
+        <button class="btn danger" data-a="reset">RESET ALL DATA</button>
         <div class="hint">Neon Survivor v3 — built with love & photons</div>
       </div>
     `);
@@ -598,6 +650,7 @@ export class UI {
       audio.ui();
       this.showSettings();
     });
+    this.click(root, '[data-a="brief"]', () => { audio.ui(); this.showBriefing(false); });
     this.click(root, '[data-a="reset"]', el => {
       if (el.dataset.confirm) {
         resetProfile();

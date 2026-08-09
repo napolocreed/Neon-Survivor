@@ -1064,7 +1064,8 @@ function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
   g.arenaActive = true;
   g.arenaX = g.px;
   g.arenaY = g.py;
-  g.arenaR = Math.min(g.viewR * 1.02, 520);
+  g.arenaTargetR = Math.min(g.viewR * 1.02, 520);
+  g.arenaR = g.arenaTargetR + 420; // sweeps inward during the name card
   g.arenaStartT = g.time;
   const e = g.spawnEnemyAt(kind, g.px + Math.cos(a) * r, g.py + Math.sin(a) * r, extraMult);
   if (!e) {
@@ -1074,8 +1075,7 @@ function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
   e.touchDamage = ENEMY_DEFS[kind].damage * damageScale(g.time);
   e.spawnTimer = 1.2;
   e.aiTimer = 2;
-  g.hitStop = Math.max(g.hitStop, 0.18);
-  g.addTrauma(0.5);
+  g.startBossIntro(kind);
 }
 
 function spawnElite(g: Game): void {
