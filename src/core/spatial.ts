@@ -38,10 +38,28 @@ export class SpatialHash<T extends Positioned> {
     return cx * 65536 + cy;
   }
 
-  /** Returns a shared scratch array — consume immediately, do not hold. */
+  /**
+   * Safe query: returns a fresh array. Reentrancy-proof — callbacks that
+   * kill enemies (and query again) can run while iterating the result.
+   */
   query(x: number, y: number, r: number): T[] {
+    const out: T[] = [];
+    this.collect(x, y, r, out);
+    return out;
+  }
+
+  /**
+   * Hot-path query into a shared scratch buffer. ONLY for loops that never
+   * call back into anything that queries this grid (e.g. soft separation).
+   */
+  queryScratch(x: number, y: number, r: number): T[] {
     const out = this.scratch;
     out.length = 0;
+    this.collect(x, y, r, out);
+    return out;
+  }
+
+  private collect(x: number, y: number, r: number, out: T[]): void {
     const cs = this.cellSize;
     const x0 = Math.floor((x - r) / cs) + OFFSET;
     const x1 = Math.floor((x + r) / cs) + OFFSET;
@@ -55,6 +73,5 @@ export class SpatialHash<T extends Positioned> {
         }
       }
     }
-    return out;
   }
 }

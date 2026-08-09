@@ -149,6 +149,29 @@ class AudioEngine {
     this.noise(0.18, 0.2, 800, { slideTo: 5000, type: 'bandpass' });
   }
 
+  /** Rising zap ladder — one per dash-chain link. */
+  chainKill(chain: number): void {
+    const base = 440 * Math.pow(1.06, Math.min(chain, 24));
+    this.tone(base, 0.12, 'square', 0.1, { slideTo: base * 1.5 });
+    this.noise(0.1, 0.12, 2000 + chain * 150, { slideTo: 400 });
+  }
+
+  reaction(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.noise(0.4, 0.25, 400, { slideTo: 6000, type: 'bandpass', when: t });
+    this.tone(660, 0.3, 'sawtooth', 0.1, { when: t, slideTo: 1320 });
+  }
+
+  surgeStart(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 4; i++) {
+      this.tone(110 * (i + 1), 0.5, 'sawtooth', 0.12, { when: t + i * 0.08, slideTo: 110 * (i + 1) * 1.2 });
+    }
+    this.noise(0.9, 0.2, 300, { slideTo: 5000, type: 'bandpass', when: t });
+  }
+
   hurt(): void {
     this.tone(160, 0.25, 'sawtooth', 0.22, { slideTo: 60 });
     this.noise(0.2, 0.2, 400, { slideTo: 120 });

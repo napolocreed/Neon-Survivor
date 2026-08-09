@@ -161,6 +161,7 @@ export class Renderer {
 
     this.drawZones(g, time);
     this.drawArena(g, time);
+    this.drawBeacon(g, time);
     this.drawPickups(g, time);
     this.drawTurrets(g, time);
     this.drawEnemies(g, time);
@@ -279,6 +280,52 @@ export class Renderer {
     ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private drawBeacon(g: Game, time: number): void {
+    if (!g.beaconAlive) return;
+    const ctx = this.ctx;
+    const x = g.beaconX;
+    const y = g.beaconY;
+    const pulse = 0.6 + 0.4 * Math.sin(time * 5);
+    ctx.globalCompositeOperation = 'lighter';
+    // vertical light beam
+    const grad = ctx.createLinearGradient(x, y - 260, x, y);
+    grad.addColorStop(0, 'rgba(255,56,96,0)');
+    grad.addColorStop(1, `rgba(255,56,96,${0.28 * pulse})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - 9, y - 260, 18, 260);
+    this.drawGlow(x, y, 42 * pulse, '#ff3860', 0.7);
+    // hex core
+    ctx.strokeStyle = '#ff3860';
+    ctx.fillStyle = '#160309';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    this.polyAt(x, y, 6, 16, time);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 15px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', x, y + 5);
+    // invite ring
+    ctx.globalAlpha = 0.5 * pulse;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    ctx.arc(x, y, 34, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  private polyAt(x: number, y: number, sides: number, r: number, rot: number): void {
+    const ctx = this.ctx;
+    for (let k = 0; k <= sides; k++) {
+      const a = rot + (k / sides) * TAU;
+      if (k === 0) ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      else ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
   }
 
   private drawTurrets(g: Game, time: number): void {
@@ -698,6 +745,29 @@ export class Renderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    // combo-tier ascension: gold trail at 50, orbiting aura at 100
+    if (g.combo >= 50) {
+      const t = g.particles; // reuse pool via renderer? no — draw directly
+      void t;
+      const tr = 0.35 + 0.2 * Math.sin(time * 8);
+      this.drawGlow(
+        g.px - g.moveDirX * 20,
+        g.py - g.moveDirY * 20,
+        16, COLORS.overdrive, tr,
+      );
+    }
+    if (g.combo >= 100) {
+      ctx.strokeStyle = COLORS.overdrive;
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(time * 6);
+      ctx.lineWidth = 1.5;
+      for (let k = 0; k < 3; k++) {
+        const a = time * 2.4 + (k / 3) * TAU;
+        ctx.beginPath();
+        ctx.arc(g.px + Math.cos(a) * 34, g.py + Math.sin(a) * 34, 4, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     // Aegis shield
     if (g.reflectTimer > 0) {
       const pulse = 1 + Math.sin(time * 12) * 0.08;
@@ -1106,6 +1176,27 @@ export class Renderer {
       const a = Math.min(0.14, g.bulletTime * 0.1);
       ctx.fillStyle = `rgba(120,180,255,${a})`;
       ctx.fillRect(0, 0, w, h);
+    }
+
+    // surge: pulsing red frame
+    if (g.surgeTimer > 0) {
+      const a = 0.25 + 0.2 * Math.sin(time * 10);
+      ctx.strokeStyle = `rgba(255,56,96,${a})`;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, w - 6, h - 6);
+      const sg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.42, w / 2, h / 2, Math.max(w, h) * 0.72);
+      sg.addColorStop(0, 'rgba(255,56,96,0)');
+      sg.addColorStop(1, `rgba(255,56,96,${a * 0.5})`);
+      ctx.fillStyle = sg;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // combo 200+: the frame itself sings gold
+    if (g.combo >= 200) {
+      const a = 0.15 + 0.1 * Math.sin(time * 7);
+      ctx.strokeStyle = `rgba(255,215,94,${a})`;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, w - 4, h - 4);
     }
   }
 

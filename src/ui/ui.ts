@@ -37,7 +37,10 @@ export class UI {
   private elBossFill!: HTMLElement;
   private elAbility!: HTMLElement;
   private elAbilityFill!: HTMLElement;
-  private lastHud = { timer: '', kills: -1, shards: -1, xp: -1, level: -1, hp: -1, dashes: -1, combo: -1, ability: -1 };
+  private elChain!: HTMLElement;
+  private elSurge!: HTMLElement;
+  private elSurgeT!: HTMLElement;
+  private lastHud = { timer: '', kills: -1, shards: -1, xp: -1, level: -1, hp: -1, dashes: -1, combo: -1, ability: -1, chain: -1, surge: -1 };
 
   onPause: (() => void) | null = null;
   onAbility: (() => void) | null = null;
@@ -89,6 +92,23 @@ export class UI {
     el.innerHTML = `<b>🏆 ${name}</b><span>+◆ ${reward}</span>`;
     this.hud.appendChild(el);
     setTimeout(() => el.remove(), 3400);
+  }
+
+  reactionToast(name: string, isNew: boolean): void {
+    if (!isNew) return; // discovery moments only — repeats speak through VFX
+    const el = document.createElement('div');
+    el.className = 'toast evo';
+    el.innerHTML = `☄ REACTION DISCOVERED<br/><span style="font-size:0.7em;letter-spacing:6px">${name}</span>`;
+    this.hud.appendChild(el);
+    setTimeout(() => el.remove(), 2700);
+  }
+
+  hintToast(text: string): void {
+    const el = document.createElement('div');
+    el.className = 'hint-pop';
+    el.textContent = text;
+    this.hud.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
   }
 
   // ---------------------------------------------------------------- title
@@ -350,6 +370,8 @@ export class UI {
           <div class="hud-combo-label">COMBO</div>
         </div>
       </div>
+      <div class="hud-chain" id="h-chain"></div>
+      <div class="hud-surge" id="h-surge" style="display:none">⚠ SURGE <b id="h-surge-t">25</b>s</div>
       <button class="hud-ability" id="h-ability">
         <svg viewBox="0 0 40 40" class="hud-ability-ring"><circle id="h-ability-fill" cx="20" cy="20" r="17.5"/></svg>
         <span class="hud-ability-name">${abilityName}</span>
@@ -369,8 +391,11 @@ export class UI {
     this.elBossFill = document.getElementById('h-boss-fill')!;
     this.elAbility = document.getElementById('h-ability')!;
     this.elAbilityFill = document.getElementById('h-ability-fill')!;
+    this.elChain = document.getElementById('h-chain')!;
+    this.elSurge = document.getElementById('h-surge')!;
+    this.elSurgeT = document.getElementById('h-surge-t')!;
     this.hudBuilt = true;
-    this.lastHud = { timer: '', kills: -1, shards: -1, xp: -1, level: -1, hp: -1, dashes: -1, combo: -1, ability: -1 };
+    this.lastHud = { timer: '', kills: -1, shards: -1, xp: -1, level: -1, hp: -1, dashes: -1, combo: -1, ability: -1, chain: -1, surge: -1 };
     document.getElementById('h-pause')!.addEventListener('click', () => this.onPause?.());
     this.elAbility.addEventListener('click', () => this.onAbility?.());
     this.elAbility.addEventListener('touchstart', ev => {
@@ -414,6 +439,27 @@ export class UI {
       L.combo = combo;
       this.elCombo.style.visibility = combo > 0 ? 'visible' : 'hidden';
       if (combo > 0) document.getElementById('h-combo-num')!.textContent = `${combo}×`;
+    }
+    // dash-chain counter with punch animation
+    const chain = g.chainWindow > 0 ? g.chain : 0;
+    if (chain !== L.chain) {
+      L.chain = chain;
+      if (chain >= 2) {
+        this.elChain.textContent = `CHAIN ×${chain}`;
+        this.elChain.classList.remove('punch');
+        void this.elChain.offsetWidth; // restart animation
+        this.elChain.classList.add('punch');
+        this.elChain.style.opacity = '1';
+      } else {
+        this.elChain.style.opacity = '0';
+      }
+    }
+    // surge countdown
+    const surge = g.surgeTimer > 0 ? Math.ceil(g.surgeTimer) : 0;
+    if (surge !== L.surge) {
+      L.surge = surge;
+      this.elSurge.style.display = surge > 0 ? 'block' : 'none';
+      if (surge > 0) this.elSurgeT.textContent = String(surge);
     }
     // ability cooldown ring (circumference ≈ 110)
     const frac = g.abilityTimer <= 0 ? 1 : 1 - g.abilityTimer / g.stats.abilityCooldown;
@@ -543,6 +589,7 @@ export class UI {
 
   showPause(g: Game): void {
     const chips = [
+      `<span class="build-chip" style="--bc:#37d9f0">▦ ${g.mutator.name}</span>`,
       ...g.weapons.map(w => {
         const def = WEAPONS[w.id];
         return `<span class="build-chip" style="--bc:${def.color}">${w.evolved ? def.evoName : def.name} ${w.evolved ? '★' : `L${w.level}`}</span>`;
@@ -583,14 +630,16 @@ export class UI {
         <div class="over-title ${isWin ? 'win' : 'dead'}">${isWin ? 'SECTOR CLEARED' : 'SIGNAL LOST'}</div>
         <div class="over-sub">${isWin ? 'OMEGA PRIME DESTROYED — THE GRID IS YOURS' : `${stats.pilotName} · SURVIVED ${fmtTime(stats.time)}`}</div>
         ${newRecord ? '<div class="record-flag">★ NEW BEST SCORE</div>' : ''}
+        <div class="over-mutator">${stats.mutatorName}</div>
         <div class="stats-grid">
           <div class="stat-box"><div class="v">${fmtTime(stats.time)}</div><div class="l">TIME</div></div>
           <div class="stat-box"><div class="v">${stats.kills}</div><div class="l">KILLS</div></div>
           <div class="stat-box"><div class="v">${stats.level}</div><div class="l">LEVEL</div></div>
           <div class="stat-box"><div class="v">${stats.maxCombo}×</div><div class="l">MAX COMBO</div></div>
-          <div class="stat-box"><div class="v">${stats.bossKills}</div><div class="l">BOSSES</div></div>
+          <div class="stat-box"><div class="v">${stats.bestChain}×</div><div class="l">DASH CHAIN</div></div>
           <div class="stat-box"><div class="v">${stats.score}</div><div class="l">SCORE</div></div>
         </div>
+        ${stats.reactionsFound.length ? `<div class="over-reactions">☄ ${stats.reactionsFound.join(' · ')}</div>` : ''}
         <div class="shards-earned">+ ◆ <span id="shard-count">0</span> SHARDS</div>
         <div class="menu-stack">
           ${isWin ? '<button class="btn gold" data-a="endless">CONTINUE — ENDLESS MODE</button>' : ''}

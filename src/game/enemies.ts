@@ -183,9 +183,9 @@ export function updateEnemies(g: Game, dt: number): void {
     e.kby *= kbDecay;
     e.angle = Math.atan2(e.vy, e.vx);
 
-    // soft separation
+    // soft separation (scratch query: this loop never re-queries the grid)
     if (e.kind < EnemyKind.BossWarden) {
-      const near = g.grid.query(e.x, e.y, e.radius + 14);
+      const near = g.grid.queryScratch(e.x, e.y, e.radius + 14);
       let pushed = 0;
       for (let q = 0; q < near.length && pushed < 4; q++) {
         const o = near[q];
@@ -594,21 +594,33 @@ export function updateSpawner(g: Game, dt: number): void {
     g.arenaActive = false; // boss died via burn tick etc.
   }
 
-  const interval = wave.interval * (bossAlive ? 2.6 : 1) * (g.endless ? Math.pow(0.93, g.endlessCycle) : 1);
+  const mut = g.mutator.id;
+  const interval = wave.interval
+    * (bossAlive ? 2.6 : 1)
+    * (g.endless ? Math.pow(0.93, g.endlessCycle) : 1)
+    * (g.surgeTimer > 0 ? 0.42 : 1)
+    * (mut === 'swarm' ? 0.74 : 1);
   g.spawnTimer -= dt;
   if (g.spawnTimer <= 0) {
     g.spawnTimer = interval;
     const batch = wave.batch + (g.endless ? g.endlessCycle : 0);
+    let hpMult = hpScale(t);
+    if (mut === 'swarm') hpMult *= 0.8;
+    if (mut === 'cryo') hpMult *= 1.15;
     for (let k = 0; k < batch; k++) {
       const kind = pickWeighted(wave.kinds, wave.weights);
-      spawnAtRing(g, kind, hpScale(t));
+      const e = spawnAtRing(g, kind, hpMult);
+      if (e) {
+        if (mut === 'rich') e.speed *= 1.15;
+        else if (mut === 'cryo') e.speed *= 0.88;
+      }
     }
   }
 
   if (t > 110 && !bossAlive) {
     g.eliteTimer -= dt;
     if (g.eliteTimer <= 0) {
-      g.eliteTimer = rand(42, 65);
+      g.eliteTimer = rand(42, 65) * (mut === 'titan' ? 0.5 : 1) * (g.surgeTimer > 0 ? 0.3 : 1);
       spawnElite(g);
     }
   }

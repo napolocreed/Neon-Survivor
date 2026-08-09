@@ -196,6 +196,33 @@ export const CURSES: CurseDef[] = [
   { id: 'vampire', name: 'Crimson Firmware', good: 'Heal 2 HP per kill in Overdrive', bad: 'Overdrive charges 30% slower' },
 ];
 
+// ------------------------------------------------------------------ mutators
+
+export interface MutatorDef {
+  id: string;
+  name: string;
+  desc: string;
+  weight: number;
+}
+
+export const MUTATORS: MutatorDef[] = [
+  { id: 'null', name: 'STANDARD GRID', desc: 'No anomalies detected', weight: 2.2 },
+  { id: 'volatile', name: 'VOLATILE GRID', desc: 'Enemies detonate on death', weight: 1 },
+  { id: 'rich', name: 'GILDED GRID', desc: '+40% gems · enemies 15% faster', weight: 1 },
+  { id: 'swarm', name: 'SWARM GRID', desc: 'Hordes ×1.35 · enemies −20% HP', weight: 1 },
+  { id: 'titan', name: 'TITAN GRID', desc: 'Elites hunt twice as often', weight: 1 },
+  { id: 'phantom', name: 'PHANTOM GRID', desc: '+1 dash charge · −15% max HP', weight: 1 },
+  { id: 'storm', name: 'STORM GRID', desc: 'Wild lightning strikes your foes', weight: 1 },
+  { id: 'cryo', name: 'FROZEN GRID', desc: 'Enemies 12% slower · +15% HP', weight: 1 },
+];
+
+export const REACTIONS = {
+  thermal: 'THERMAL SHOCK',
+  superconduct: 'SUPERCONDUCT',
+  electrolysis: 'ELECTROLYSIS',
+  napalm: 'NAPALM',
+} as const;
+
 // ------------------------------------------------------------------ enemies
 
 export interface EnemyDef {
@@ -414,6 +441,9 @@ export interface AchievementStats {
   pilotsOwned: number;
   cursesTaken: number;
   endlessTime: number;
+  bestChain: number;
+  reactionsSeen: number;
+  surgesCleared: number;
 }
 
 export const ACHIEVEMENTS: AchievementDef[] = [
@@ -435,6 +465,10 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'worm', name: 'Serpent Slayer', desc: 'Destroy a Void Serpent', reward: 150, check: s => s.wormKills >= 1 },
   { id: 'deal', name: 'Deal With It', desc: 'Accept a Cursed Tech offer', reward: 75, check: s => s.cursesTaken >= 1 },
   { id: 'endless15', name: 'Beyond The Wall', desc: 'Reach 15:00 in Endless', reward: 300, check: s => s.endlessTime >= 900 },
+  { id: 'chain8', name: 'You Are The Bullet', desc: 'Reach an 8× dash chain', reward: 150, check: s => s.bestChain >= 8 },
+  { id: 'chain15', name: 'Human Railgun', desc: 'Reach a 15× dash chain', reward: 300, check: s => s.bestChain >= 15 },
+  { id: 'chemist', name: 'Grid Chemist', desc: 'Discover all 4 elemental reactions', reward: 300, check: s => s.reactionsSeen >= 4 },
+  { id: 'surge', name: 'Defiant', desc: 'Survive a Defiance Surge', reward: 150, check: s => s.surgesCleared >= 1 },
 ];
 
 // ------------------------------------------------------------------ leveling

@@ -51,6 +51,12 @@ function makeHooks(): GameHooks {
     overdrive: () => ui.toast('⚡ OVERDRIVE ⚡', 'od'),
     sector: (name, sub) => ui.sectorToast(name, sub),
     achievement: (name, reward) => ui.achievementToast(name, reward),
+    reaction: (name, isNew) => ui.reactionToast(name, isNew),
+    hint: text => ui.hintToast(text),
+    surge: started => {
+      if (started) ui.toast('⚠ DEFIANCE SURGE ⚠', 'warn');
+      else ui.toast('SURGE CLEARED — REWARD INBOUND', 'evo');
+    },
     hud: () => ui.updateHud(game!),
   };
 }
@@ -67,6 +73,16 @@ function startRun(): void {
   game.camX = game.px;
   game.camY = game.py;
   ui.buildHud(game.pilot.abilityName);
+  // intro: warp-in flash + sector & protocol banners
+  game.screenFlash = 1;
+  game.invuln = 1.2;
+  ui.sectorToast('SECTOR 01', 'THE GRID');
+  const mut = game.mutator;
+  if (mut.id !== 'null') {
+    setTimeout(() => {
+      if (game?.mutator === mut) ui.sectorToast(`▦ ${mut.name}`, mut.desc);
+    }, 1600);
+  }
   ui.onPause = () => {
     if (game && game.phase === 'run') {
       game.pause();

@@ -15,7 +15,7 @@ import {
 } from './types';
 import {
   WEAPONS, PASSIVES, PILOTS, PilotDef, xpForLevel, COLORS, ENEMY_DEFS,
-  CURSES, SECTORS, ACHIEVEMENTS, damageScale,
+  CURSES, SECTORS, ACHIEVEMENTS, damageScale, MUTATORS, MutatorDef, REACTIONS, hpScale,
 } from './data';
 import { profile, metaBonuses, save } from '../meta/save';
 import { fireWeapons, updateProjectiles, updateBlades, updateTurrets } from './weapons';
@@ -34,6 +34,7 @@ export interface RunStats {
   time: number; kills: number; level: number; score: number;
   shardsFromScore: number; shardsPicked: number; bossKills: number;
   maxCombo: number; pilotName: string; victory: boolean; endless: boolean;
+  bestChain: number; reactionsFound: string[]; mutatorName: string;
 }
 
 export interface GameHooks {
@@ -48,6 +49,9 @@ export interface GameHooks {
   overdrive(): void;
   sector(name: string, sub: string): void;
   achievement(name: string, reward: number): void;
+  reaction(name: string, isNew: boolean): void;
+  hint(text: string): void;
+  surge(started: boolean): void;
   hud(): void;
 }
 
@@ -119,6 +123,25 @@ export class Game {
   bulletTime = 0; // enemy-slow seconds remaining
   phantomStrikes = 0;
   phantomTimer = 0;
+
+  // dash-chain: a dash kill makes the next dash free for a short window
+  chain = 0;
+  chainWindow = 0;
+  bestChain = 0;
+
+  // defiance beacon / surge
+  beaconX = 0;
+  beaconY = 0;
+  beaconAlive = false;
+  beaconTimer = 75; // next beacon spawn
+  surgeTimer = 0; // active surge seconds remaining
+
+  mutator: MutatorDef = MUTATORS[0];
+  runReactions: string[] = [];
+  private killMilestone = 250;
+  private hintDashShown = false;
+  private hintChainShown = false;
+  private hintGrazeShown = false;
 
   // run progress
   time = 0;
@@ -193,6 +216,17 @@ export class Game {
     this.rerollsLeft = 1 + m.rerolls;
     this.banishesLeft = 1 + m.banishes;
     this.reviveAvailable = m.revive;
+    // roll this run's Grid Protocol (mutator)
+    {
+      const weights = MUTATORS.map(x => x.weight);
+      let total = 0;
+      for (const w of weights) total += w;
+      let r = Math.random() * total;
+      for (let i = 0; i < MUTATORS.length; i++) {
+        r -= weights[i];
+        if (r <= 0) { this.mutator = MUTATORS[i]; break; }
+      }
+    }
     if (pilot.ability === 'anomaly') {
       // GLITCH: two random distinct weapons
       const a = (Math.random() * WEAPONS.length) | 0;
@@ -230,6 +264,7 @@ export class Game {
     let hpMult = p.hpMult * (1 + 0.18 * lv(PassiveId.Vitality));
     if (c('overcharge')) hpMult *= 0.75;
     if (c('haste')) hpMult *= 0.8;
+    if (this.mutator.id === 'phantom') hpMult *= 0.85;
     this.stats = {
       maxHp: Math.round((100 + m.hp) * hpMult),
       regen: c('berserk') ? 0 : p.regen + 0.8 * lv(PassiveId.Reactor),
@@ -244,10 +279,10 @@ export class Game {
       critMult: 2,
       luck: (1 + 0.15 * lv(PassiveId.Lucky)) * (p.ability === 'anomaly' ? 1.2 : 1),
       xpMult: 1 + m.xp,
-      gemMult: c('greed') ? 2 : 1,
+      gemMult: (c('greed') ? 2 : 1) * (this.mutator.id === 'rich' ? 1.4 : 1),
       shardMult: 1 + m.shards,
       damageTakenMult: c('glass') ? 1.25 : 1,
-      dashCharges: p.dashCharges + (c('haste') ? 1 : 0),
+      dashCharges: p.dashCharges + (c('haste') ? 1 : 0) + (this.mutator.id === 'phantom' ? 1 : 0),
       dashCooldown: 2.6 * p.dashCooldownMult,
       dashDamageMult: p.dashDamageMult,
       abilityCooldown: p.abilityCd,
@@ -306,6 +341,8 @@ export class Game {
     this.updateTimers(dt, rawDt);
     this.updatePlayer(dt);
     this.updateAbility(dt);
+    this.updateBeacon(dt);
+    this.updateMutatorFx(dt);
     fireWeapons(this, dt);
     updateTurrets(this, dt);
     updateEnemies(this, this.enemyDt(dt));
@@ -330,6 +367,11 @@ export class Game {
       this.achTimer = 5;
       this.checkAchievements();
     }
+    // first-runs dash hint
+    if (!this.hintDashShown && this.time > 7 && this.runDashKills === 0 && profile.records.runs < 3) {
+      this.hintDashShown = true;
+      this.hooks.hint('TAP ANYWHERE = DASH');
+    }
 
     if (this.pendingLevelUps > 0) {
       this.pendingLevelUps--;
@@ -352,6 +394,10 @@ export class Game {
     if (this.gemStreakTimer > 0) {
       this.gemStreakTimer -= dt;
       if (this.gemStreakTimer <= 0) this.gemStreak = 0;
+    }
+    if (this.chainWindow > 0) {
+      this.chainWindow -= dt;
+      if (this.chainWindow <= 0) this.chain = 0;
     }
     if (this.overdriveTimer > 0) {
       this.overdriveTimer -= dt;
@@ -412,9 +458,14 @@ export class Game {
   }
 
   private tryDash(): void {
-    if (this.dashCharges <= 0 || this.dashTimer > 0) return;
-    if (this.dashCharges === this.stats.dashCharges) this.dashRecharge = this.stats.dashCooldown;
-    this.dashCharges--;
+    if (this.dashTimer > 0) return;
+    // an active chain window makes the dash FREE — you are the bullet
+    const freeChain = this.chainWindow > 0 && this.chain > 0;
+    if (!freeChain) {
+      if (this.dashCharges <= 0) return;
+      if (this.dashCharges === this.stats.dashCharges) this.dashRecharge = this.stats.dashCooldown;
+      this.dashCharges--;
+    }
     this.dashTimer = DASH_TIME;
     this.invuln = Math.max(this.invuln, 0.34);
     let dx = this.moveDirX;
@@ -442,7 +493,9 @@ export class Game {
   }
 
   private dashDamage(): void {
-    const dmg = 30 * this.dmgMult() * this.stats.dashDamageMult;
+    // dash damage grows with your build AND with the running chain
+    const dmg = 30 * this.dmgMult() * this.stats.dashDamageMult
+      * (1 + this.chain * 0.12 + this.level * 0.04);
     const near = this.grid.query(this.px, this.py, 40);
     for (let i = 0; i < near.length; i++) {
       const e = near[i];
@@ -450,11 +503,7 @@ export class Game {
       if (dist2(this.px, this.py, e.x, e.y) < (30 + e.radius) ** 2) {
         e.dashHitCd = 0.5;
         const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300 });
-        if (killed) {
-          this.runDashKills++;
-          this.chargeOverdrive(2);
-          this.dashRecharge = Math.max(0.2, this.dashRecharge - 0.7);
-        }
+        if (killed) this.onDashKill();
       }
     }
     // dash carves through serpents too
@@ -462,6 +511,32 @@ export class Game {
     if (wh && wh.worm.hitCd < 0.4) {
       wh.worm.hitCd = 0.75;
       hitWorm(this, wh.worm, wh.segIdx, dmg);
+    }
+  }
+
+  private onDashKill(): void {
+    this.runDashKills++;
+    this.chain++;
+    this.bestChain = Math.max(this.bestChain, this.chain);
+    this.chainWindow = 1.35;
+    this.hp = Math.min(this.stats.maxHp, this.hp + 1); // aggression heals
+    this.chargeOverdrive(2 + this.chain * 0.25);
+    this.score += this.chain * 25;
+    this.dashRecharge = Math.max(0.2, this.dashRecharge - 0.7);
+    this.hitStop = Math.max(this.hitStop, 0.035);
+    this.haptic(8);
+    audio.chainKill(this.chain);
+    if (this.chain === 2 && !this.hintChainShown && profile.records.runs < 4) {
+      this.hintChainShown = true;
+      this.hooks.hint('DASH KILL = FREE DASH — CHAIN THEM!');
+    }
+    // milestone bursts
+    if (this.chain === 5 || this.chain === 10 || this.chain === 20) {
+      this.screenFlash = Math.max(this.screenFlash, 0.35);
+      this.addTrauma(0.25);
+      const ring = this.particles.spawnOrRecycle();
+      ring.kind = ParticleKind.Ring; ring.x = this.px; ring.y = this.py; ring.vx = 0; ring.vy = 0;
+      ring.life = 0.5; ring.maxLife = 0.5; ring.size = 90 + this.chain * 4; ring.color = 3;
     }
   }
 
@@ -577,6 +652,74 @@ export class Game {
     }
   }
 
+  // ------------------------------------------------------------ defiance beacon
+
+  private updateBeacon(dt: number): void {
+    if (this.surgeTimer > 0) {
+      this.surgeTimer -= dt;
+      if (this.surgeTimer <= 0) {
+        // survived: payout
+        profile.records.surgesCleared = (profile.records.surgesCleared ?? 0) + 1;
+        this.spawnPickup(PickupKind.Chest, this.px + rand(-60, 60), this.py + rand(-60, 60), 1);
+        for (let i = 0; i < 5; i++) this.spawnPickup(PickupKind.Shard, this.px + rand(-90, 90), this.py + rand(-90, 90), 12);
+        this.overdrive = 100;
+        this.chargeOverdrive(1); // trip it
+        this.hooks.surge(false);
+        this.screenFlash = 1;
+        audio.bossDown();
+        this.haptic(50);
+      }
+      return;
+    }
+    if (this.arenaActive) return;
+    if (!this.beaconAlive) {
+      this.beaconTimer -= dt;
+      if (this.beaconTimer <= 0 && this.time > 55) {
+        this.beaconAlive = true;
+        const a = Math.random() * TAU;
+        this.beaconX = this.px + Math.cos(a) * 300;
+        this.beaconY = this.py + Math.sin(a) * 300;
+      }
+      return;
+    }
+    // drifted offscreen? re-place it ahead of the player
+    if (dist2(this.px, this.py, this.beaconX, this.beaconY) > (this.viewR + 300) ** 2) {
+      const a = Math.atan2(this.moveDirY, this.moveDirX) + rand(-0.8, 0.8);
+      this.beaconX = this.px + Math.cos(a) * 300;
+      this.beaconY = this.py + Math.sin(a) * 300;
+    }
+    // beacon waiting: touch it to defy the grid
+    if (dist2(this.px, this.py, this.beaconX, this.beaconY) < 46 * 46) {
+      this.beaconAlive = false;
+      this.beaconTimer = rand(95, 130);
+      this.surgeTimer = 25;
+      this.hooks.surge(true);
+      this.addTrauma(0.5);
+      this.screenFlash = Math.max(this.screenFlash, 0.5);
+      audio.surgeStart();
+      this.haptic(40);
+    }
+  }
+
+  private stormTimer = 3;
+
+  private updateMutatorFx(dt: number): void {
+    if (this.mutator.id !== 'storm') return;
+    this.stormTimer -= dt;
+    if (this.stormTimer <= 0) {
+      this.stormTimer = rand(2.2, 4);
+      const target = this.enemies.count > 0
+        ? this.enemies.items[(Math.random() * this.enemies.count) | 0]
+        : null;
+      if (target && target.spawnTimer <= 0 && dist2(this.px, this.py, target.x, target.y) < (this.viewR * 0.9) ** 2) {
+        this.bolts.push({ x1: target.x, y1: target.y - 500, x2: target.x, y2: target.y, life: 0.2, color: '#ffe45e' });
+        this.applyShock(target, 0.5);
+        this.dealDamage(target, (14 + hpScale(this.time) * 8) * this.dmgMult(), { canCrit: false });
+        audio.shoot(1);
+      }
+    }
+  }
+
   nearestEnemy(x: number, y: number, maxDist: number): Enemy | null {
     let best: Enemy | null = null;
     let bestD = maxDist * maxDist;
@@ -615,21 +758,113 @@ export class Game {
       p.kind = ParticleKind.Ring; p.x = e.x; p.y = e.y; p.vx = 0; p.vy = 0;
       p.life = 0.25; p.maxLife = 0.25; p.size = e.radius * 1.6; p.color = 7;
     }
+    this.tryReaction(e);
   }
 
   applyBurn(e: Enemy, dps: number, dur: number): void {
     e.burnTimer = Math.max(e.burnTimer, dur * this.stats.statusMult);
     e.burnDps = Math.max(e.burnDps, dps * this.stats.statusMult);
+    this.tryReaction(e);
   }
 
   applyShock(e: Enemy, dur: number): void {
     if (e.kind >= EnemyKind.BossWarden) return;
     e.shockTimer = Math.max(e.shockTimer, dur * this.stats.statusMult);
+    this.tryReaction(e);
   }
 
   applyAcid(e: Enemy, dps: number, dur: number): void {
     e.acidTimer = Math.max(e.acidTimer, dur * this.stats.statusMult);
     e.acidDps = Math.max(e.acidDps, dps * this.stats.statusMult);
+    this.tryReaction(e);
+  }
+
+  // -------- elemental reactions: two statuses on one enemy = chemistry --------
+
+  private discoverReaction(name: string): void {
+    if (!this.runReactions.includes(name)) this.runReactions.push(name);
+    const isNew = !profile.reactionsSeen.includes(name);
+    if (isNew) {
+      profile.reactionsSeen.push(name);
+      save();
+    }
+    this.hooks.reaction(name, isNew);
+    audio.reaction();
+    this.haptic(15);
+  }
+
+  private tryReaction(e: Enemy): void {
+    if (e.hp <= 0) return;
+    const s = this.stats.statusMult;
+    // THERMAL SHOCK — fire meets ice: steam detonation
+    if (e.burnTimer > 0 && (e.chill >= 1 || e.frozenTimer > 0)) {
+      e.burnTimer = 0;
+      e.chill = 0;
+      e.frozenTimer = 0;
+      this.discoverReaction(REACTIONS.thermal);
+      const r = 95 * this.stats.areaMult;
+      const near = this.grid.query(e.x, e.y, r + 30);
+      for (let i = near.length - 1; i >= 0; i--) {
+        const o = near[i];
+        if (o.spawnTimer > 0 || o.hp <= 0) continue;
+        if (dist2(e.x, e.y, o.x, o.y) < (r + o.radius) ** 2) {
+          this.dealDamage(o, 55 * s * this.dmgMult(), { canCrit: false });
+        }
+      }
+      const ring = this.particles.spawnOrRecycle();
+      ring.kind = ParticleKind.Ring; ring.x = e.x; ring.y = e.y; ring.vx = 0; ring.vy = 0;
+      ring.life = 0.4; ring.maxLife = 0.4; ring.size = r; ring.color = 6;
+      const orb = this.particles.spawnOrRecycle();
+      orb.kind = ParticleKind.Orb; orb.x = e.x; orb.y = e.y; orb.vx = 0; orb.vy = 0;
+      orb.life = 0.35; orb.maxLife = 0.35; orb.size = r * 0.7; orb.color = 6;
+      this.addTrauma(0.15);
+      return;
+    }
+    // SUPERCONDUCT — ice meets lightning: the freeze spreads
+    if ((e.frozenTimer > 0 || e.chill >= 2) && e.shockTimer > 0) {
+      e.shockTimer = 0;
+      this.discoverReaction(REACTIONS.superconduct);
+      const near = this.grid.query(e.x, e.y, 160);
+      let spread = 0;
+      for (let i = 0; i < near.length && spread < 3; i++) {
+        const o = near[i];
+        if (o === e || o.spawnTimer > 0 || o.hp <= 0 || o.frozenTimer > 0) continue;
+        if (dist2(e.x, e.y, o.x, o.y) < 150 * 150) {
+          o.chill = 3; // instant freeze via applyChill path
+          o.frozenTimer = clamp(1.1 * s, 0, 2);
+          o.slowTimer = 1;
+          profile.records.totalFrozen++;
+          this.bolts.push({ x1: e.x, y1: e.y, x2: o.x, y2: o.y, life: 0.16, color: '#7ad7ff' });
+          spread++;
+        }
+      }
+      return;
+    }
+    // ELECTROLYSIS — lightning meets acid: corrosion arcs outward
+    if (e.shockTimer > 0 && e.acidTimer > 0) {
+      e.shockTimer = 0;
+      this.discoverReaction(REACTIONS.electrolysis);
+      const near = this.grid.query(e.x, e.y, 170);
+      let spread = 0;
+      for (let i = 0; i < near.length && spread < 4; i++) {
+        const o = near[i];
+        if (o === e || o.spawnTimer > 0 || o.hp <= 0 || o.acidTimer > 0) continue;
+        if (dist2(e.x, e.y, o.x, o.y) < 160 * 160) {
+          o.acidTimer = e.acidTimer;
+          o.acidDps = e.acidDps;
+          this.bolts.push({ x1: e.x, y1: e.y, x2: o.x, y2: o.y, life: 0.16, color: '#9fff45' });
+          spread++;
+        }
+      }
+      return;
+    }
+    // NAPALM — fire meets acid: the pool ignites
+    if (e.burnTimer > 0 && e.acidTimer > 0) {
+      e.burnTimer = 0;
+      e.acidTimer = 0;
+      this.discoverReaction(REACTIONS.napalm);
+      this.spawnZone(e.x, e.y, 72 * this.stats.areaMult, 2.6, 16 * s * this.dmgMult() * 0.5, false, ZoneKind.Fire, 0);
+    }
   }
 
   // ------------------------------------------------------------ damage
@@ -731,6 +966,29 @@ export class Game {
       if (acid?.evolved) {
         this.spawnZone(e.x, e.y, 45 * this.stats.areaMult, 2.2, e.acidDps, false, ZoneKind.Acid, 0);
       }
+    }
+    // kill milestone fanfares
+    if (this.kills >= this.killMilestone) {
+      this.killMilestone += 250;
+      this.shardsPicked += 25;
+      this.hooks.hint(`☠ ${this.kills} KILLS · +◆25`);
+      this.screenFlash = Math.max(this.screenFlash, 0.25);
+      audio.buy();
+    }
+    // Volatile Grid mutator: clean detonations (never hurts the player)
+    if (this.mutator.id === 'volatile' && e.kind < EnemyKind.BossWarden && !this.hasCurse('volatile')) {
+      const r = 48;
+      const near2 = this.grid.query(e.x, e.y, r + 24);
+      for (let q = near2.length - 1; q >= 0; q--) {
+        const o = near2[q];
+        if (o === e || o.spawnTimer > 0 || o.hp <= 0) continue;
+        if (dist2(e.x, e.y, o.x, o.y) < (r + o.radius) ** 2) {
+          this.dealDamage(o, 12 * this.dmgMult(), { canCrit: false, showNumber: false });
+        }
+      }
+      const orb2 = this.particles.spawnOrRecycle();
+      orb2.kind = ParticleKind.Orb; orb2.x = e.x; orb2.y = e.y; orb2.vx = 0; orb2.vy = 0;
+      orb2.life = 0.22; orb2.maxLife = 0.22; orb2.size = r * 0.7; orb2.color = 2;
     }
     // Volatile Rounds curse: friendly explosion (that can also singe you)
     if (this.hasCurse('volatile') && e.kind < EnemyKind.BossWarden) {
@@ -941,7 +1199,8 @@ export class Game {
           if (e.zoneCd > 0) continue;
           if (dist2(e.x, e.y, z.x, z.y) < (z.r + e.radius) ** 2) {
             e.zoneCd = 0.4;
-            this.applyAcid(e, z.dps * 0.5, 2);
+            if (z.kind === ZoneKind.Acid) this.applyAcid(e, z.dps * 0.5, 2);
+            else if (z.kind === ZoneKind.Fire) this.applyBurn(e, z.dps * 0.5, 2);
             this.dealDamage(e, z.dps * 0.4, { canCrit: false, showNumber: false });
             if (z.kind === ZoneKind.Void) {
               const d = Math.hypot(e.x - z.x, e.y - z.y) || 1;
@@ -999,6 +1258,10 @@ export class Game {
       } else if (d < e.radius + GRAZE_RADIUS && e.grazeCd <= 0) {
         e.grazeCd = 0.6;
         this.runGraze++;
+        if (this.runGraze === 3 && !this.hintGrazeShown && profile.records.runs < 4) {
+          this.hintGrazeShown = true;
+          this.hooks.hint('GRAZE = OVERDRIVE CHARGE ⚡');
+        }
         this.chargeOverdrive(1.4);
         const p = this.particles.spawnOrRecycle();
         p.kind = ParticleKind.Spark;
@@ -1395,6 +1658,9 @@ export class Game {
       pilotsOwned: profile.pilots.length,
       cursesTaken: r.cursesTaken,
       endlessTime: this.endless ? Math.max(r.endlessTime, Math.floor(this.time)) : r.endlessTime,
+      bestChain: Math.max(r.bestChain ?? 0, this.bestChain),
+      reactionsSeen: profile.reactionsSeen.length,
+      surgesCleared: r.surgesCleared ?? 0,
     };
     for (const a of ACHIEVEMENTS) {
       if (profile.achievements[a.id]) continue;
@@ -1421,6 +1687,7 @@ export class Game {
       time: this.time, kills: this.kills, level: this.level, score: Math.round(this.score),
       shardsFromScore, shardsPicked: picked, bossKills: this.bossKills,
       maxCombo: this.maxCombo, pilotName: this.pilot.name, victory, endless: this.endless,
+      bestChain: this.bestChain, reactionsFound: this.runReactions, mutatorName: this.mutator.name,
     };
     profile.shards += shardsFromScore + picked;
     profile.records.runs++;
@@ -1429,6 +1696,7 @@ export class Game {
     profile.records.bestLevel = Math.max(profile.records.bestLevel, this.level);
     profile.records.bestScore = Math.max(profile.records.bestScore, Math.round(this.score));
     profile.records.bestCombo = Math.max(profile.records.bestCombo, this.maxCombo);
+    profile.records.bestChain = Math.max(profile.records.bestChain ?? 0, this.bestChain);
     if (this.endless) profile.records.endlessTime = Math.max(profile.records.endlessTime, Math.floor(this.time));
     if (victory) {
       profile.records.victories++;

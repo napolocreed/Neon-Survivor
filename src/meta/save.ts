@@ -17,6 +17,8 @@ export interface Records {
   bossKills: [number, number, number];
   cursesTaken: number;
   endlessTime: number;
+  bestChain: number;
+  surgesCleared: number;
 }
 
 export interface Settings {
@@ -35,6 +37,7 @@ export interface Profile {
   settings: Settings;
   achievements: Record<string, boolean>;
   evolutionsSeen: string[];
+  reactionsSeen: string[];
   endlessUnlocked: boolean;
 }
 
@@ -50,10 +53,12 @@ function defaultProfile(): Profile {
       bestTime: 0, bestKills: 0, bestLevel: 0, bestScore: 0, bestCombo: 0,
       victories: 0, runs: 0, totalKills: 0, totalFrozen: 0, wormKills: 0,
       bossKills: [0, 0, 0], cursesTaken: 0, endlessTime: 0,
+      bestChain: 0, surgesCleared: 0,
     },
     settings: { sfx: true, music: true, haptics: true, shake: true },
     achievements: {},
     evolutionsSeen: [],
+    reactionsSeen: [],
     endlessUnlocked: false,
   };
 }
@@ -70,6 +75,7 @@ function load(): Profile {
     p.settings = { ...defaultProfile().settings, ...p.settings };
     p.achievements = p.achievements ?? {};
     p.evolutionsSeen = p.evolutionsSeen ?? [];
+    p.reactionsSeen = p.reactionsSeen ?? [];
     if (!p.pilots.includes('vector')) p.pilots.push('vector');
     if (!p.pilots.includes(p.selectedPilot)) p.selectedPilot = 'vector';
     return p;
