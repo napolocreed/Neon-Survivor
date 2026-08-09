@@ -42,6 +42,16 @@ Drone Turret · Void Orb · Flak Cannon · Photon Sweep · Ion Disc · Hunter Si
 
 Max a weapon *and* own its paired passive to unlock its legendary evolution.
 
+### The horde
+
+Spawn pressure ramps from 3 to 24 enemies a second, and the standing population
+climbs past 200 — a governor keeps it there rather than letting it saturate.
+Contact damage is deliberately modest: with that many bodies you are always
+touching *something*, so the horde is pressure, and the things that actually
+kill you are the ones you can see coming. Spawn weights are set against
+expected lifetime, not spawn share, so the swarm on screen is the swarm that
+was designed rather than whatever survived longest.
+
 ### Bestiary
 
 14 hostile types built around decisions, not stats — bait the **Sapper**'s blast
@@ -62,9 +72,14 @@ boss rotation changes every run.
 
 ## Tech
 
-- TypeScript + Vite. **Zero runtime dependencies.**
-- Canvas 2D: pre-baked glow sprites, additive blending, object pooling and a
-  spatial hash — steady 60 fps with 300+ entities on a phone
+- TypeScript + Vite. **Zero runtime dependencies.** 58 kB gzipped, all of it.
+- Canvas 2D: pre-baked glow sprites, object pooling and a spatial hash. Every
+  glow goes into one additive pass rendered to a **half-resolution bloom
+  buffer** — a soft radial blur loses nothing at half res, and it took the
+  enemy pass from 33 ms to 8.6 ms. Viewport culling on top. Steady 60 fps with
+  a screen-filling horde.
+- The whole simulation costs **0.59 ms** at 460 enemies, so the frame budget
+  belongs to the picture.
 - 100 % procedural audio: synthesized SFX and a layered synthwave score whose
   filter, bass and fills follow the intensity of the run
 - Installable PWA, fully offline
