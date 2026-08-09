@@ -63,6 +63,7 @@ export interface Enemy {
   acidTimer: number;
   acidDps: number;
   bladeCd: number; // orbital-blade re-hit throttle
+  beamCd: number; // photon-sweep / tether re-hit throttle (kept separate from blades)
   dashHitCd: number; // dash-through re-hit throttle
   zoneCd: number; // ground-zone tick throttle
   markTimer: number; // Hunter Sigil brand — amp + detonation on death/expiry

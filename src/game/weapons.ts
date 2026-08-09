@@ -235,13 +235,13 @@ export function updatePrism(g: Game, dt: number): void {
     for (let k = near.length - 1; k >= 0; k--) {
       const e = near[k];
       if (e.spawnTimer > 0 || e.hp <= 0) continue;
-      e.bladeCd -= dt / n; // shared throttle across beams
-      if (e.bladeCd > 0) continue;
+      e.beamCd -= dt / n; // shared across this weapon's beams only
+      if (e.beamCd > 0) continue;
       const relX = e.x - g.px, relY = e.y - g.py;
       const along = relX * cos + relY * sin;
       if (along < g.playerRadius || along > len) continue;
       if (Math.abs(-relX * sin + relY * cos) < (w.evolved ? 13 : 9) + e.radius) {
-        e.bladeCd = 0.35;
+        e.beamCd = 0.35;
         // Lighthouse Protocol: graze-charged guaranteed crits
         const forceCrit = w.evolved && w.burst > 0;
         if (forceCrit) w.burst--;
@@ -849,13 +849,13 @@ export function updateTurrets(g: Game, dt: number): void {
     for (let k = near.length - 1; k >= 0; k--) {
       const e = near[k];
       if (e.spawnTimer > 0 || e.hp <= 0) continue;
-      e.bladeCd -= dt;
-      if (e.bladeCd > 0) continue;
+      e.beamCd -= dt;
+      if (e.beamCd > 0) continue;
       const relX = e.x - a.x, relY = e.y - a.y;
       const along = relX * cos + relY * sin;
       if (along < 0 || along > len) continue;
       if (Math.abs(-relX * sin + relY * cos) < 10 + e.radius) {
-        e.bladeCd = 0.3;
+        e.beamCd = 0.3;
         g.dealDamage(e, 16 * g.dmgMult(), { canCrit: false, src: WeaponId.Turret });
       }
     }

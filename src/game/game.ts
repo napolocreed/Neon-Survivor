@@ -74,7 +74,7 @@ function makeEnemy(): Enemy {
     kind: EnemyKind.Chaser, elite: false, affix: Affix.None, xp: 1,
     flashTimer: 0, spawnTimer: 0, hitCd: 0, grazeCd: 0, kbx: 0, kby: 0, kbResist: 0,
     slowTimer: 0, burnTimer: 0, burnDps: 0, chill: 0, frozenTimer: 0, shockTimer: 0,
-    acidTimer: 0, acidDps: 0, bladeCd: 0, dashHitCd: 0, zoneCd: 0, markTimer: 0,
+    acidTimer: 0, acidDps: 0, bladeCd: 0, beamCd: 0, dashHitCd: 0, zoneCd: 0, markTimer: 0,
     seed: 0, flockId: -1, aiState: 0, aiTimer: 0, aimX: 0, aimY: 0, shootTimer: 0, angle: 0,
   };
 }
@@ -131,6 +131,7 @@ export class Game {
   chain = 0;
   chainWindow = 0;
   bestChain = 0;
+  alchemyBurn = 0; // Rogue Catalyst: cumulative max-HP burn
   grazeBoostTimer = 0; // photon-sweep spin boost window
   wakeTimer = 0; // slipstream ignited-wake window
   private dashKilledSomething = false; // Kinetic Debt bookkeeping
@@ -283,7 +284,10 @@ export class Game {
     if (c('haste')) hpMult *= 0.8;
     if (this.mutator.id === 'phantom') hpMult *= 0.85;
     this.stats = {
-      maxHp: Math.round((100 + m.hp) * hpMult),
+      maxHp: Math.max(
+        Math.round((100 + m.hp) * hpMult * 0.6),
+        Math.round((100 + m.hp) * hpMult) - this.alchemyBurn,
+      ),
       regen: c('berserk') ? 0 : p.regen + 0.8 * lv(PassiveId.Reactor),
       speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1)
         * (this.wakeTimer > 0 ? 1 + 0.04 * lv(PassiveId.Slipstream) : 1),
@@ -375,8 +379,9 @@ export class Game {
     this.updatePickups(dt);
     updateSpawner(this, dt);
     this.updateHazards(dt);
-    // sigil mark expiry — detonates where the mark dies out
-    for (let i = 0; i < this.enemies.count; i++) {
+    // sigil mark expiry — detonates where the mark dies out.
+    // Backward: detonation can kill enemies, which swap-removes from the pool.
+    for (let i = this.enemies.count - 1; i >= 0; i--) {
       const e = this.enemies.items[i];
       if (e.markTimer > 0) {
         e.markTimer -= dt;
@@ -938,10 +943,10 @@ export class Game {
 
   private discoverReaction(name: string): void {
     profile.records.totalReactions = (profile.records.totalReactions ?? 0) + 1;
-    if (this.hasCurse('alchemy') && this.stats.maxHp > 100 * 0.6) {
-      // Rogue Catalyst burns hull for power — floor at 60% of base
-      this.stats.maxHp = Math.max(Math.round(100 * 0.6), this.stats.maxHp - 2);
-      this.hp = Math.min(this.hp, this.stats.maxHp);
+    if (this.hasCurse('alchemy')) {
+      // Rogue Catalyst burns hull for power — tracked so recomputeStats keeps it
+      this.alchemyBurn += 2;
+      this.recomputeStats();
     }
     if (!this.runReactions.includes(name)) this.runReactions.push(name);
     const isNew = !profile.reactionsSeen.includes(name);
@@ -1231,7 +1236,7 @@ export class Game {
 
   acceptDeal(id: string): void {
     this.curses.push(id);
-    if (id === 'edge') this.playerRadius = 13 * 1.25;
+    if (id === 'edge') this.playerRadius = PLAYER_RADIUS * 1.25;
     profile.records.cursesTaken++;
     this.recomputeStats();
     this.hp = Math.min(this.hp, this.stats.maxHp);
@@ -1347,7 +1352,7 @@ export class Game {
     e.flashTimer = 0; e.spawnTimer = 0.6; e.hitCd = 0; e.grazeCd = 0;
     e.kbx = 0; e.kby = 0; e.slowTimer = 0; e.burnTimer = 0; e.burnDps = 0;
     e.chill = 0; e.frozenTimer = 0; e.shockTimer = 0; e.acidTimer = 0; e.acidDps = 0;
-    e.bladeCd = 0; e.dashHitCd = 0; e.zoneCd = 0; e.markTimer = 0;
+    e.bladeCd = 0; e.beamCd = 0; e.dashHitCd = 0; e.zoneCd = 0; e.markTimer = 0;
     e.seed = Math.random() * TAU;
     e.flockId = -1;
     e.aiState = 0; e.aiTimer = rand(0, 1); e.shootTimer = rand(1, 3); e.angle = 0;
