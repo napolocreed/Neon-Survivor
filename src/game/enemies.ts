@@ -757,8 +757,8 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
         audio.shoot(2);
       };
       // WHITEOUT signature at 50% (once)
-      if (mid && e.flockId < 0) {
-        e.flockId = 1;
+      if (e.hp < e.maxHp * 0.5 && e.sigFired === 0) {
+        e.sigFired = 1;
         e.aiState = 10;
         e.aiTimer = 0.8;
         e.shootTimer = 0;
@@ -768,9 +768,7 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       if (e.aiState === 10) {
         e.vx *= 0.8; e.vy *= 0.8;
         e.shootTimer -= dt;
-        if (e.aiTimer > 0) {
-          e.aiTimer -= dt;
-        } else if (e.shootTimer <= 0) {
+        if (e.aiTimer <= 0 && e.shootTimer <= 0) {
           e.seed += 0.7; // gate rotates each ring
           gatedRing(0);
           e.shootTimer = 0.8;
@@ -780,7 +778,6 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
         break;
       }
       if (e.aiState === 0) { // blink reposition
-        e.aiTimer -= dt;
         e.vx *= 0.9; e.vy *= 0.9;
         if (e.aiTimer <= 0) {
           const a = Math.random() * TAU;
@@ -796,7 +793,6 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
         }
       } else if (e.aiState === 1) { // aim + curtain
         e.vx = 0; e.vy = 0;
-        e.aiTimer -= dt;
         if (e.aiTimer <= 0) {
           fireWall();
           if (enraged) {
@@ -810,7 +806,6 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       } else { // drift + snipe
         e.vx = nx * spd;
         e.vy = ny * spd;
-        e.aiTimer -= dt;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0) {
           e.shootTimer = 0.9;
@@ -822,11 +817,11 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
     }
     case EnemyKind.BossMonolith: {
       // THE MONOLITH — the danger is the terrain: rotating beams + mortars
-      const beamCount = e.flockId >= 1 ? 4 : mid ? 3 : 2;
+      const beamCount = e.sigFired >= 1 ? 4 : mid ? 3 : 2;
       const beamLen = Math.max(g.arenaR * 1.05, 520);
       // GRID LOCKDOWN signature at 40% (once): cross beams that reverse
-      if (e.hp < e.maxHp * 0.4 && e.flockId < 0) {
-        e.flockId = 1;
+      if (e.hp < e.maxHp * 0.4 && e.sigFired === 0) {
+        e.sigFired = 1;
         e.aiState = 1;
         e.aiTimer = 9;
         e.aimY = 1; // rotation sign
@@ -835,17 +830,15 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
       e.vx = nx * spd * (e.aiState === 1 ? 0.4 : 1);
       e.vy = ny * spd * (e.aiState === 1 ? 0.4 : 1);
       if (e.aiState === 0) { // telegraph
-        e.aiTimer -= dt;
         if (e.aiTimer <= 0) {
           e.aiState = 1;
-          e.aiTimer = e.flockId >= 1 ? 9 : 5;
+          e.aiTimer = e.sigFired >= 1 ? 9 : 5;
           e.shootTimer = 0.3;
           if (!e.aimY) e.aimY = 1;
         }
       } else if (e.aiState === 1) { // beams ON
-        e.aiTimer -= dt;
         // lockdown: reverse every 2s with a warning flash
-        if (e.flockId >= 1) {
+        if (e.sigFired >= 1) {
           e.aimX = (e.aimX ?? 0) + dt;
           if (e.aimX >= 2) {
             e.aimX = 0;
@@ -879,7 +872,6 @@ function updateBoss(g: Game, e: Enemy, dt: number, nx: number, ny: number, dist:
         }
         if (e.aiTimer <= 0) { e.aiState = 2; e.aiTimer = 1.6; }
       } else { // rest + shotgun
-        e.aiTimer -= dt;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0) {
           e.shootTimer = 0.6;
@@ -1074,6 +1066,7 @@ function spawnBoss(g: Game, kind: EnemyKind, extraMult: number): void {
     g.arenaActive = false;
     return;
   }
+  e.bossSlot = slot;
   e.touchDamage = ENEMY_DEFS[kind].damage * damageScale(g.time);
   e.spawnTimer = 1.2;
   e.aiTimer = 2;

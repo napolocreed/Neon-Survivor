@@ -862,7 +862,7 @@ export class Renderer {
           ctx.strokeRect(-r * 0.5, -r * 0.5, r, r);
           ctx.restore();
           if (e.aiState === 1) {
-            const beamCount = e.flockId >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
+            const beamCount = e.sigFired >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
             const beamLen = 560;
             ctx.globalCompositeOperation = 'lighter';
             for (let b2 = 0; b2 < beamCount; b2++) {
@@ -880,7 +880,7 @@ export class Renderer {
             ctx.globalCompositeOperation = 'source-over';
           } else if (e.aiState === 0) {
             // telegraph thin lines
-            const beamCount = e.flockId >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
+            const beamCount = e.sigFired >= 1 ? 4 : e.hp < e.maxHp * 0.66 ? 3 : 2;
             ctx.strokeStyle = 'rgba(255,138,61,0.35)';
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 8]);

@@ -67,6 +67,9 @@ export interface Enemy {
   dashHitCd: number; // dash-through re-hit throttle
   zoneCd: number; // ground-zone tick throttle
   markTimer: number; // Hunter Sigil brand — amp + detonation on death/expiry
+  tetherCd: number; // Sentinel tether re-hit throttle (own timer, not the beam's)
+  bossSlot: number; // which boss slot this boss occupies (-1 for non-bosses)
+  sigFired: number; // boss signature-move latch (0 = not yet fired)
   // AI scratch
   seed: number;
   flockId: number;

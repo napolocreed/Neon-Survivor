@@ -78,6 +78,7 @@ function makeEnemy(): Enemy {
     flashTimer: 0, spawnTimer: 0, hitCd: 0, grazeCd: 0, kbx: 0, kby: 0, kbResist: 0,
     slowTimer: 0, burnTimer: 0, burnDps: 0, chill: 0, frozenTimer: 0, shockTimer: 0,
     acidTimer: 0, acidDps: 0, bladeCd: 0, beamCd: 0, dashHitCd: 0, zoneCd: 0, markTimer: 0,
+    tetherCd: 0, bossSlot: -1, sigFired: 0,
     seed: 0, flockId: -1, aiState: 0, aiTimer: 0, aimX: 0, aimY: 0, shootTimer: 0, angle: 0,
   };
 }
@@ -288,8 +289,7 @@ export class Game {
         Math.round((100 + m.hp) * hpMult) - this.alchemyBurn,
       ),
       regen: c('berserk') ? 0 : p.regen + 0.8 * lv(PassiveId.Reactor),
-      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1)
-        * (this.wakeTimer > 0 ? 1 + 0.04 * lv(PassiveId.Slipstream) : 1),
+      speed: 250 * p.speedMult * (1 + m.speed) * (1 + 0.06 * lv(PassiveId.Thrusters)) * (c('haste') ? 1.2 : 1),
       magnet: 118 * (1 + 0.25 * lv(PassiveId.Magnet)) * (c('greed') ? 0.65 : 1),
       armor: p.armor + lv(PassiveId.Plating),
       damageMult: p.dmgMult * (1 + m.dmg) * (1 + 0.09 * lv(PassiveId.Power)) * (c('overcharge') ? 1.35 : 1),
@@ -491,7 +491,9 @@ export class Game {
       g.rot = Math.atan2(this.dashDirY, this.dashDirX); g.color = 0;
       this.dashDamage();
     } else {
-      const spd = this.stats.speed * (this.overdriveActive ? 1.22 : 1);
+      const spd = this.stats.speed
+        * (this.overdriveActive ? 1.22 : 1)
+        * (this.wakeTimer > 0 ? 1 + 0.04 * (this.passives.get(PassiveId.Slipstream) ?? 0) : 1);
       this.px += inp.moveX * spd * dt;
       this.py += inp.moveY * spd * dt;
     }
@@ -607,12 +609,14 @@ export class Game {
       if (e.dashHitCd > 0 || e.spawnTimer > 0) continue;
       if (dist2(this.px, this.py, e.x, e.y) < (30 + e.radius) ** 2) {
         e.dashHitCd = 0.5;
-        this.dashSigilBoost = e.markTimer > 0;
+        const wasMarked = e.markTimer > 0;
+        this.dashSigilBoost = wasMarked;
         const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300, src: 100 });
         this.dashSigilBoost = false;
         if (killed) {
           this.onDashKill();
-          if (e.markTimer > 0) this.chainWindow += 0.4; // sigil execution extends the window
+          // killEnemy already cleared the brand — use the pre-kill snapshot
+          if (wasMarked) this.chainWindow += 0.4;
         }
       }
     }
@@ -1218,7 +1222,9 @@ export class Game {
 
   private onBossKilled(e: Enemy): void {
     this.bossKills++;
-    const bi = e.kind - EnemyKind.BossWarden;
+    // Count by the slot the boss occupied — kind arithmetic silently dropped
+    // the two new bosses (103/104 mapped to index 3/4).
+    const bi = e.bossSlot;
     if (bi >= 0 && bi < 3) profile.records.bossKills[bi]++;
     this.score += 1500;
     this.hitStop = Math.max(this.hitStop, 0.3);
@@ -1325,7 +1331,10 @@ export class Game {
         const d = dist2(x, y, g.x, g.y);
         if (d < bestD) { bestD = d; best = g; }
       }
-      if (best) { best.value += value; return; }
+      if (best) {
+        best.value += this.mutator.id === 'decay' ? Math.ceil(value * 1.5) : value;
+        return;
+      }
     }
     this.spawnPickup(PickupKind.Gem, x, y, value);
   }
@@ -1369,6 +1378,7 @@ export class Game {
     e.kbx = 0; e.kby = 0; e.slowTimer = 0; e.burnTimer = 0; e.burnDps = 0;
     e.chill = 0; e.frozenTimer = 0; e.shockTimer = 0; e.acidTimer = 0; e.acidDps = 0;
     e.bladeCd = 0; e.beamCd = 0; e.dashHitCd = 0; e.zoneCd = 0; e.markTimer = 0;
+    e.tetherCd = 0; e.bossSlot = -1; e.sigFired = 0;
     // aim vectors carry WORLD COORDS for some kinds (Blinker blink target),
     // unit vectors for others — never inherit them from a recycled struct.
     e.aimX = 0; e.aimY = 0;
@@ -1461,7 +1471,7 @@ export class Game {
     const near = this.grid.query(this.px, this.py, GRAZE_RADIUS + 40);
     for (let i = 0; i < near.length; i++) {
       const e = near[i];
-      if (e.spawnTimer > 0) continue;
+      if (e.spawnTimer > 0 || e.hp <= 0) continue; // 'edge' can kill mid-loop
       e.hitCd -= dt;
       e.grazeCd -= dt;
       const d = Math.hypot(e.x - this.px, e.y - this.py);

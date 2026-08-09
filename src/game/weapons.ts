@@ -134,13 +134,15 @@ export function fireWeapons(g: Game, dt: number): void {
   for (const w of g.weapons) {
     w.cooldown -= dt;
     if (w.id === WeaponId.Blades || w.id === WeaponId.Turret) continue; // continuous systems
-    if (w.burst > 0) {
-      w.burstTimer -= dt;
-      if (w.burstTimer <= 0) {
-        w.burst--;
-        w.burstTimer = 0.08;
-        firePulseVolley(g, w);
-      }
+    // burstTimer is a general-purpose per-weapon timer (Pulse burst spacing,
+    // Flak dash-volley throttle) — it must tick unconditionally.
+    if (w.burstTimer > 0) w.burstTimer = Math.max(0, w.burstTimer - dt);
+    // Only the Pulse evolution fires burst volleys; Prism also uses `burst`
+    // to bank crit charges and must never be routed here.
+    if (w.id === WeaponId.Pulse && w.burst > 0 && w.burstTimer <= 0) {
+      w.burst--;
+      w.burstTimer = 0.08;
+      firePulseVolley(g, w);
     }
     if (w.cooldown > 0) continue;
     switch (w.id) {
@@ -218,7 +220,6 @@ export function flakDashVolley(g: Game, angle: number): void {
 export function updatePrism(g: Game, dt: number): void {
   const w = g.weapons.find(x => x.id === WeaponId.Prism);
   if (!w) return;
-  w.burstTimer = Math.max(0, w.burstTimer - dt);
   const i = idx(w);
   const grazeBoost = g.grazeBoostTimer > 0 ? 1.6 : 1;
   const odBoost = g.overdriveActive ? 1.3 : 1;
