@@ -1369,6 +1369,9 @@ export class Game {
     e.kbx = 0; e.kby = 0; e.slowTimer = 0; e.burnTimer = 0; e.burnDps = 0;
     e.chill = 0; e.frozenTimer = 0; e.shockTimer = 0; e.acidTimer = 0; e.acidDps = 0;
     e.bladeCd = 0; e.beamCd = 0; e.dashHitCd = 0; e.zoneCd = 0; e.markTimer = 0;
+    // aim vectors carry WORLD COORDS for some kinds (Blinker blink target),
+    // unit vectors for others — never inherit them from a recycled struct.
+    e.aimX = 0; e.aimY = 0;
     e.seed = Math.random() * TAU;
     e.flockId = -1;
     e.aiState = 0; e.aiTimer = rand(0, 1); e.shootTimer = rand(1, 3); e.angle = 0;

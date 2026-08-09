@@ -372,7 +372,9 @@ export function updateEnemies(g: Game, dt: number): void {
     const kbDecay = 1 - Math.min(1, dt * 6);
     e.kbx *= kbDecay;
     e.kby *= kbDecay;
-    e.angle = Math.atan2(e.vy, e.vx);
+    // Bosses drive e.angle themselves (spiral arms, rotating beams) — only
+    // regular enemies face their movement direction.
+    if (e.kind < EnemyKind.BossWarden) e.angle = Math.atan2(e.vy, e.vx);
 
     // soft separation (scratch query: this loop never re-queries the grid)
     if (e.kind < EnemyKind.BossWarden) {
