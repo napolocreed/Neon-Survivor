@@ -18,6 +18,7 @@ import {
   CURSES, SECTORS, ACHIEVEMENTS, damageScale, MUTATORS, MutatorDef, REACTIONS, hpScale,
 } from './data';
 import { profile, metaBonuses, save } from '../meta/save';
+import { BOSS_POOLS } from './data';
 import { fireWeapons, updateProjectiles, updateBlades, updateTurrets } from './weapons';
 import { updateEnemies, updateSpawner, updateEnemyBullets, updateWorms, wormAt, hitWorm } from './enemies';
 
@@ -169,8 +170,11 @@ export class Game {
   runGraze = 0;
   runOverdrives = 0;
   runDashKills = 0;
+  /** Damage dealt per source: WeaponId 0-15, 100 dash, 101 ability, 102 other. */
+  damageBySource = new Map<number, number>();
   private scoreBanked = 0;
   private pickedBanked = 0;
+  private timeBanked = 0;
   private achTimer = 4;
 
   weapons: WeaponState[] = [];
@@ -181,6 +185,7 @@ export class Game {
   // director state
   waveIdx = 0;
   spawnTimer = 1;
+  bossPlan: EnemyKind[] = BOSS_POOLS.map(pool => pool[(Math.random() * pool.length) | 0]);
   eliteTimer = 55;
   eventIdx = 0;
   bossIdx = 0;
@@ -553,7 +558,7 @@ export class Game {
       if (e.dashHitCd > 0 || e.spawnTimer > 0) continue;
       if (dist2(this.px, this.py, e.x, e.y) < (30 + e.radius) ** 2) {
         e.dashHitCd = 0.5;
-        const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300 });
+        const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300, src: 100 });
         if (killed) this.onDashKill();
       }
     }
@@ -561,7 +566,7 @@ export class Game {
     const wh = wormAt(this, this.px, this.py, 30);
     if (wh && wh.worm.hitCd < 0.4) {
       wh.worm.hitCd = 0.75;
-      hitWorm(this, wh.worm, wh.segIdx, dmg);
+      hitWorm(this, wh.worm, wh.segIdx, dmg, 100);
     }
   }
 
@@ -611,6 +616,7 @@ export class Game {
             this.dealDamage(e, 160 * this.dmgMult(), {
               knockX: ((e.x - this.px) / d) * 520,
               knockY: ((e.y - this.py) / d) * 520,
+              src: 101,
             });
           }
         }
@@ -692,7 +698,7 @@ export class Game {
             const e = near[i];
             if (e.spawnTimer > 0) continue;
             if (dist2(target.x, target.y, e.x, e.y) < (80 + e.radius) ** 2) {
-              this.dealDamage(e, 110 * this.dmgMult(), {});
+              this.dealDamage(e, 110 * this.dmgMult(), { src: 101 });
             }
           }
           this.addTrauma(0.2);
@@ -924,7 +930,7 @@ export class Game {
   dealDamage(
     e: Enemy,
     amount: number,
-    opts: { canCrit?: boolean; knockX?: number; knockY?: number; showNumber?: boolean } = {},
+    opts: { canCrit?: boolean; knockX?: number; knockY?: number; showNumber?: boolean; src?: number } = {},
   ): boolean {
     let dmg = amount;
     let crit = false;
@@ -949,6 +955,8 @@ export class Game {
       }
       audio.kill(10);
     }
+    const src = opts.src ?? 102;
+    this.damageBySource.set(src, (this.damageBySource.get(src) ?? 0) + Math.min(dmg, Math.max(0, e.hp)));
     e.hp -= dmg;
     e.flashTimer = 0.08;
     if (opts.knockX || opts.knockY) {
@@ -1079,7 +1087,7 @@ export class Game {
     for (let i = 0; i < 6; i++) this.spawnPickup(PickupKind.Shard, e.x + rand(-50, 50), e.y + rand(-50, 50), 12);
     this.spawnPickup(PickupKind.Chest, e.x, e.y, 1);
     this.spawnPickup(PickupKind.Health, e.x + rand(-60, 60), e.y + rand(-60, 60), 40);
-    if (e.kind === EnemyKind.BossOmega && !this.endless) {
+    if (!this.endless && this.bossIdx >= 3 && e.kind === this.bossPlan[2]) {
       this.finishRun(true);
       return;
     }
@@ -1264,7 +1272,7 @@ export class Game {
             e.zoneCd = 0.4;
             if (z.kind === ZoneKind.Acid) this.applyAcid(e, z.dps * 0.5, 2);
             else if (z.kind === ZoneKind.Fire) this.applyBurn(e, z.dps * 0.5, 2);
-            this.dealDamage(e, z.dps * 0.4, { canCrit: false, showNumber: false });
+            this.dealDamage(e, z.dps * 0.4, { canCrit: false, showNumber: false, src: z.kind === ZoneKind.Acid ? WeaponId.Acid : z.kind === ZoneKind.Void ? WeaponId.Void : 102 });
             if (z.kind === ZoneKind.Void) {
               const d = Math.hypot(e.x - z.x, e.y - z.y) || 1;
               e.kbx -= ((e.x - z.x) / d) * 260 * (1 - e.kbResist);
@@ -1746,6 +1754,8 @@ export class Game {
     const picked = this.shardsPicked - this.pickedBanked;
     this.scoreBanked = this.score;
     this.pickedBanked = this.shardsPicked;
+    profile.records.playtime = (profile.records.playtime ?? 0) + (this.time - this.timeBanked);
+    this.timeBanked = this.time;
     // arcade rank: survival carries it, style (chains + combo) bumps it
     let rankIdx = victory ? 5 : this.time >= 480 ? 4 : this.time >= 360 ? 3 : this.time >= 230 ? 2 : this.time >= 120 ? 1 : 0;
     if (!victory && this.bestChain >= 12 && this.maxCombo >= 120) rankIdx = Math.min(4, rankIdx + 1);

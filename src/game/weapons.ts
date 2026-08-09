@@ -193,7 +193,7 @@ function fireTesla(g: Game, w: WeaponState): void {
       g.bolts.push({ x1: px, y1: py, x2: cur.x, y2: cur.y, life: 0.16, color: WEAPONS[WeaponId.Tesla].color });
       px = cur.x; py = cur.y;
       if (applyShock) g.applyShock(cur, w.evolved ? 0.9 : 0.35);
-      g.dealDamage(cur, dmg, {});
+      g.dealDamage(cur, dmg, { src: WeaponId.Tesla });
       let next: Enemy | null = null;
       let bestD = 260 * 260;
       const near = g.grid.query(px, py, 260);
@@ -226,6 +226,7 @@ function fireNova(g: Game, w: WeaponState): void {
       g.dealDamage(e, dmg, {
         knockX: ((e.x - g.px) / d) * NOVA.knock[i],
         knockY: ((e.y - g.py) / d) * NOVA.knock[i],
+        src: WeaponId.Nova,
       });
     }
   }
@@ -233,7 +234,7 @@ function fireNova(g: Game, w: WeaponState): void {
   for (const worm of g.worms) {
     for (let s = 0; s < worm.segs.length; s++) {
       if (dist2(g.px, g.py, worm.segs[s].x, worm.segs[s].y) < (radius + worm.radius) ** 2) {
-        hitWorm(g, worm, s, dmg);
+        hitWorm(g, worm, s, dmg, WeaponId.Nova);
         break; // one hit per nova per worm
       }
     }
@@ -314,7 +315,7 @@ function railBlast(g: Game, w: WeaponState, angle: number, i: number): void {
       e.kby += cos * side * 220 * (1 - e.kbResist);
     }
     if (perp < width / 2 + e.radius) {
-      g.dealDamage(e, dmg, { knockX: cos * 60, knockY: sin * 60 });
+      g.dealDamage(e, dmg, { knockX: cos * 60, knockY: sin * 60, src: WeaponId.Rail });
     }
   }
   // rail vs serpents: first segment crossing the beam line
@@ -325,7 +326,7 @@ function railBlast(g: Game, w: WeaponState, angle: number, i: number): void {
       const along = relX * cos + relY * sin;
       if (along < 0 || along > len) continue;
       if (Math.abs(-relX * sin + relY * cos) < width / 2 + worm.radius) {
-        hitWorm(g, worm, s, dmg);
+        hitWorm(g, worm, s, dmg, WeaponId.Rail);
         break;
       }
     }
@@ -381,7 +382,7 @@ function fireCryo(g: Game, w: WeaponState): void {
         if (e.spawnTimer > 0) continue;
         if (dist2(g.px, g.py, e.x, e.y) < (r + e.radius) ** 2) {
           g.applyChill(e, 3);
-          g.dealDamage(e, 20 * g.dmgMult(), { canCrit: false, showNumber: false });
+          g.dealDamage(e, 20 * g.dmgMult(), { canCrit: false, showNumber: false, src: WeaponId.Cryo });
         }
       }
       const ring = g.particles.spawnOrRecycle();
@@ -493,11 +494,12 @@ export function explodeMine(g: Game, x: number, y: number, damage: number, radiu
       g.dealDamage(e, damage, {
         knockX: ((e.x - x) / d) * 260,
         knockY: ((e.y - y) / d) * 260,
+        src: WeaponId.Mines,
       });
     }
   }
   const wormHit = wormAt(g, x, y, r);
-  if (wormHit) hitWorm(g, wormHit.worm, wormHit.segIdx, damage);
+  if (wormHit) hitWorm(g, wormHit.worm, wormHit.segIdx, damage, WeaponId.Mines);
   const ring = g.particles.spawnOrRecycle();
   ring.kind = ParticleKind.Ring; ring.x = x; ring.y = y; ring.vx = 0; ring.vy = 0;
   ring.life = 0.35; ring.maxLife = 0.35; ring.size = r; ring.color = 4;
@@ -608,7 +610,7 @@ export function updateTurrets(g: Game, dt: number): void {
       if (along < 0 || along > len) continue;
       if (Math.abs(-relX * sin + relY * cos) < 10 + e.radius) {
         e.bladeCd = 0.3;
-        g.dealDamage(e, 16 * g.dmgMult(), { canCrit: false });
+        g.dealDamage(e, 16 * g.dmgMult(), { canCrit: false, src: WeaponId.Turret });
       }
     }
   }
@@ -636,7 +638,7 @@ export function updateBlades(g: Game, dt: number): void {
       if (d > inner - e.radius && d < outer + e.radius) {
         e.bladeCd = 0.28;
         e.slowTimer = Math.max(e.slowTimer, 0.5);
-        g.dealDamage(e, dmg, {});
+        g.dealDamage(e, dmg, { src: WeaponId.Blades });
       }
     }
     return;
@@ -660,6 +662,7 @@ export function updateBlades(g: Game, dt: number): void {
         g.dealDamage(e, dmg, {
           knockX: ((e.x - g.px) / d) * 140,
           knockY: ((e.y - g.py) / d) * 140,
+          src: WeaponId.Blades,
         });
       }
     }
@@ -762,7 +765,7 @@ export function updateProjectiles(g: Game, dt: number): void {
             e.zoneCd -= dt;
             if (e.zoneCd <= 0) {
               e.zoneCd = 0.3;
-              g.dealDamage(e, p.damage * 0.3, { canCrit: false, showNumber: false });
+              g.dealDamage(e, p.damage * 0.3, { canCrit: false, showNumber: false, src: WeaponId.Void });
             }
           }
         }
@@ -792,7 +795,7 @@ export function updateProjectiles(g: Game, dt: number): void {
     if (g.worms.length > 0) {
       const hit = wormAt(g, p.x, p.y, p.radius);
       if (hit) {
-        hitWorm(g, hit.worm, hit.segIdx, p.damage);
+        hitWorm(g, hit.worm, hit.segIdx, p.damage, p.kind);
         const s = g.particles.spawnOrRecycle();
         s.kind = ParticleKind.Spark; s.x = p.x; s.y = p.y;
         s.vx = rand(-90, 90); s.vy = rand(-90, 90);
@@ -816,6 +819,7 @@ export function updateProjectiles(g: Game, dt: number): void {
         const killed = g.dealDamage(e, p.damage, {
           knockX: (p.vx / sp) * p.knockback,
           knockY: (p.vy / sp) * p.knockback,
+          src: p.kind,
         });
         const s = g.particles.spawnOrRecycle();
         s.kind = ParticleKind.Spark; s.x = p.x; s.y = p.y;
@@ -839,7 +843,7 @@ export function updateProjectiles(g: Game, dt: number): void {
             const e2 = around[q];
             if (e2 === e || e2.spawnTimer > 0 || e2.hp <= 0) continue;
             if (dist2(p.x, p.y, e2.x, e2.y) < (blast + e2.radius) ** 2) {
-              g.dealDamage(e2, p.damage * 0.5, { showNumber: false });
+              g.dealDamage(e2, p.damage * 0.5, { showNumber: false, src: p.kind });
             }
           }
           const ring = g.particles.spawnOrRecycle();

@@ -5,7 +5,7 @@ import { Game, RunStats, ChestResult } from '../game/game';
 import { CardOffer, WeaponId, CurseDef } from '../game/types';
 import {
   WEAPONS, PASSIVES, PILOTS, MATRIX, MATRIX_BRANCHES, matrixCost,
-  ACHIEVEMENTS, CURSES, RARITY_COLORS, RARITY_NAMES,
+  ACHIEVEMENTS, CURSES, RARITY_COLORS, RARITY_NAMES, SHIP_PATHS,
 } from '../game/data';
 import { profile, save, resetProfile, metaRank } from '../meta/save';
 import { audio } from '../audio/audio';
@@ -113,15 +113,39 @@ export class UI {
 
   // ---------------------------------------------------------------- title
 
-  private shipSvg(color: string, size: number): string {
+  private shipSvg(color: string, size: number, pilotId = 'vector'): string {
+    const path = SHIP_PATHS[pilotId] ?? SHIP_PATHS.vector;
+    const pts = path.map(([x, y]) => `${(x * 18).toFixed(1)},${(y * 18).toFixed(1)}`).join(' ');
     return `
       <svg viewBox="-30 -30 60 60" width="${size}" height="${size}">
         <g transform="rotate(-90)">
-          <polygon points="24.3,0 -16.2,17.1 -8.1,0 -16.2,-17.1"
+          <polygon points="${pts}"
             fill="#0a1220" stroke="${color}" stroke-width="2.6" stroke-linejoin="round"/>
           <circle cx="3.6" cy="0" r="3.2" fill="#eafeff"/>
         </g>
       </svg>`;
+  }
+
+  /** Horizontal damage-by-source bars for the current run. */
+  private damageBars(g: Game): string {
+    const entries = [...g.damageBySource.entries()]
+      .filter(([, v]) => v >= 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 7);
+    if (entries.length === 0) return '';
+    const max = entries[0][1];
+    const nameOf = (src: number) =>
+      src === 100 ? 'DASH' : src === 101 ? g.pilot.abilityName : src === 102 ? 'OTHER' : (WEAPONS[src]?.name ?? '?').toUpperCase();
+    const colorOf = (src: number) =>
+      src === 100 ? '#4df3ff' : src === 101 ? '#ffd75e' : src === 102 ? '#7a89ad' : WEAPONS[src]?.color ?? '#7a89ad';
+    const fmt = (v: number) => v >= 10000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+    const rows = entries.map(([src, v]) => `
+      <div class="dmg-row">
+        <span class="dmg-name">${nameOf(src)}</span>
+        <div class="dmg-track"><div class="dmg-fill" style="width:${Math.max(3, (v / max) * 100)}%;background:${colorOf(src)}"></div></div>
+        <span class="dmg-val">${fmt(v)}</span>
+      </div>`).join('');
+    return `<div class="dmg-panel"><div class="dmg-title">DAMAGE DEALT</div>${rows}</div>`;
   }
 
   showTitle(): void {
@@ -134,7 +158,7 @@ export class UI {
     const root = this.show(`
       <div class="screen">
         <div class="title-logo">
-          <div class="title-emblem">${this.shipSvg(pilot.color, 74)}</div>
+          <div class="title-emblem">${this.shipSvg(pilot.color, 74, pilot.id)}</div>
           <div class="title-neon">NEON</div>
           <div class="title-survivor">SURVIVOR</div>
           <div class="title-tag">${best}</div>
@@ -147,6 +171,7 @@ export class UI {
           <button class="btn" data-a="pilots">PILOTS<small>${profile.pilots.length}/${PILOTS.length} ships unlocked</small></button>
           <button class="btn" data-a="matrix">NANITE MATRIX<small>permanent upgrades</small></button>
           <button class="btn" data-a="ach">ACHIEVEMENTS<small>${achDone}/${ACHIEVEMENTS.length} unlocked</small></button>
+          <button class="btn" data-a="stats">PILOT RECORD<small>career statistics</small></button>
           <button class="btn" data-a="settings">SETTINGS</button>
         </div>
         <div class="hint">Survive 10 minutes across three sectors.<br/>Dash kills chain. Graze charges OVERDRIVE. You are the bullet.</div>
@@ -156,6 +181,7 @@ export class UI {
     this.click(root, '[data-a="pilots"]', () => { audio.ui(); this.showPilots(); });
     this.click(root, '[data-a="matrix"]', () => { audio.ui(); this.showMatrix(); });
     this.click(root, '[data-a="ach"]', () => { audio.ui(); this.showAchievements(); });
+    this.click(root, '[data-a="stats"]', () => { audio.ui(); this.showStats(); });
     this.click(root, '[data-a="settings"]', () => { audio.ui(); this.showSettings(); });
   }
 
@@ -262,7 +288,7 @@ export class UI {
       return `
         <button class="pilot-card ${selected ? 'selected' : ''}" style="--pc:${p.color}" data-id="${p.id}">
           ${badge}
-          <div class="pilot-ship">${this.shipSvg(p.color, 64)}</div>
+          <div class="pilot-ship">${this.shipSvg(p.color, 64, p.id)}</div>
           <div class="pilot-name">${p.name}</div>
           <div class="pilot-title">${p.title}${(profile.records.pilotBest?.[p.id] ?? 0) > 0 ? ` · BEST ${fmtTime(profile.records.pilotBest![p.id])}` : ''}</div>
           <div class="pilot-desc">${p.desc}</div>
@@ -306,6 +332,68 @@ export class UI {
       }
       this.showPilots();
     });
+  }
+
+  // ---------------------------------------------------------------- career stats
+
+  showStats(): void {
+    const r = profile.records;
+    const hours = Math.floor((r.playtime ?? 0) / 3600);
+    const mins = Math.floor(((r.playtime ?? 0) % 3600) / 60);
+    const pilotRows = PILOTS.map(p => {
+      const best = profile.records.pilotBest?.[p.id] ?? 0;
+      const owned = profile.pilots.includes(p.id);
+      return `
+        <div class="stat-row">
+          <span style="color:${owned ? p.color : 'var(--dim)'}">${p.name}</span>
+          <b>${owned ? (best > 0 ? fmtTime(best) : '—') : '🔒'}</b>
+        </div>`;
+    }).join('');
+    const row = (label: string, value: string | number) =>
+      `<div class="stat-row"><span>${label}</span><b>${value}</b></div>`;
+    const root = this.show(`
+      <div class="screen">
+        <div class="back-row">
+          <button class="back-btn" data-a="back">‹ BACK</button>
+          <span class="shards-chip">◆ ${profile.shards}</span>
+        </div>
+        <div class="screen-title">PILOT RECORD</div>
+        <div class="screen-sub">${r.runs} deployments · ${hours > 0 ? `${hours}h ` : ''}${mins}m in the grid</div>
+        <div class="stats-columns">
+          <div class="stats-block">
+            <div class="stats-block-title">COMBAT</div>
+            ${row('Total kills', r.totalKills)}
+            ${row('Best combo', `${r.bestCombo}×`)}
+            ${row('Best dash chain', `${r.bestChain ?? 0}×`)}
+            ${row('Enemies frozen', r.totalFrozen)}
+            ${row('Serpents slain', r.wormKills)}
+            ${row('Surges cleared', r.surgesCleared ?? 0)}
+          </div>
+          <div class="stats-block">
+            <div class="stats-block-title">CAMPAIGN</div>
+            ${row('Best time', fmtTime(r.bestTime))}
+            ${row('Best level', r.bestLevel)}
+            ${row('Best score', r.bestScore)}
+            ${row('Victories', r.victories)}
+            ${row('Wardens down', r.bossKills[0])}
+            ${row('Seraphs down', r.bossKills[1])}
+            ${row('Omegas down', r.bossKills[2])}
+            ${row('Curses embraced', r.cursesTaken)}
+          </div>
+          <div class="stats-block">
+            <div class="stats-block-title">DISCOVERY</div>
+            ${row('Evolutions found', `${profile.evolutionsSeen.length} / ${WEAPONS.length}`)}
+            ${row('Reactions found', `${profile.reactionsSeen.length} / 4`)}
+            ${row('Achievements', `${Object.keys(profile.achievements).length} / ${ACHIEVEMENTS.length}`)}
+          </div>
+          <div class="stats-block">
+            <div class="stats-block-title">BEST TIME BY PILOT</div>
+            ${pilotRows}
+          </div>
+        </div>
+      </div>
+    `);
+    this.click(root, '[data-a="back"]', () => { audio.ui(); this.showTitle(); });
   }
 
   // ---------------------------------------------------------------- settings
@@ -630,6 +718,7 @@ export class UI {
         <div class="screen-title">PAUSED</div>
         <div class="screen-sub">${g.pilot.name} · ${fmtTime(g.time)} · LVL ${g.level}</div>
         <div class="pause-build">${chips}</div>
+        ${this.damageBars(g)}
         <div class="menu-stack">
           <button class="btn primary" data-a="resume">RESUME</button>
           <button class="btn" data-a="restart">RESTART</button>
@@ -665,6 +754,7 @@ export class UI {
           <div class="stat-box"><div class="v">${stats.score}</div><div class="l">SCORE</div></div>
         </div>
         ${stats.reactionsFound.length ? `<div class="over-reactions">☄ ${stats.reactionsFound.join(' · ')}</div>` : ''}
+        ${this.damageBars(g)}
         <div class="shards-earned">+ ◆ <span id="shard-count">0</span> SHARDS</div>
         <div class="menu-stack">
           ${isWin ? '<button class="btn gold" data-a="endless">CONTINUE — ENDLESS MODE</button>' : ''}

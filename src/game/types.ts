@@ -21,6 +21,8 @@ export const enum Affix {
   Volatile = 1, // fires a bullet ring on death
   Armored = 2, // 40% damage reduction
   Swift = 3, // +60% speed
+  Regen = 4, // heals over time — burst it down
+  Phasing = 5, // teleports toward the player
 }
 
 export interface Enemy {

@@ -286,10 +286,13 @@ export const WAVES: WavePhase[] = [
   { t: 560, interval: 0.62, batch: 5, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter], weights: [3, 3, 3.5, 3, 2.5, 3] },
 ];
 
-export const BOSS_TIMES: { t: number; kind: EnemyKind }[] = [
-  { t: 180, kind: EnemyKind.BossWarden },
-  { t: 390, kind: EnemyKind.BossSeraph },
-  { t: 600, kind: EnemyKind.BossOmega },
+export const BOSS_SLOT_TIMES = [180, 390, 600];
+
+/** Candidate pools per boss slot — each run rolls one boss per slot. */
+export const BOSS_POOLS: EnemyKind[][] = [
+  [EnemyKind.BossWarden],
+  [EnemyKind.BossSeraph],
+  [EnemyKind.BossOmega],
 ];
 
 export const EVENTS: { t: number; type: 'ring' | 'stream' | 'flock' | 'worm' }[] = [
@@ -313,6 +316,17 @@ export function hpScale(t: number): number {
 export function damageScale(t: number): number {
   return 1 + (t / 60) * 0.13;
 }
+
+// ------------------------------------------------------------------ ship silhouettes
+// Polygon points in unit space, nose toward +x. Shared by canvas & menu SVG.
+
+export const SHIP_PATHS: Record<string, [number, number][]> = {
+  vector: [[1.35, 0], [-0.9, 0.95], [-0.45, 0], [-0.9, -0.95]],
+  razor: [[1.65, 0], [-0.35, 0.42], [-1.05, 0.72], [-0.7, 0], [-1.05, -0.72], [-0.35, -0.42]],
+  bulwark: [[1.1, 0], [0.35, 0.62], [-0.55, 1.0], [-0.95, 0.45], [-0.6, 0], [-0.95, -0.45], [-0.55, -1.0], [0.35, -0.62]],
+  wraith: [[1.35, 0], [-0.1, 0.42], [-1.15, 0.95], [-0.55, 0.12], [-0.55, -0.12], [-1.15, -0.95], [-0.1, -0.42]],
+  glitch: [[1.45, 0.12], [-0.25, 0.88], [-0.75, 0.28], [-1.05, -0.55], [-0.15, -0.75]],
+};
 
 // ------------------------------------------------------------------ pilots
 

@@ -1506,3 +1506,103 @@ button {
   text-shadow: 0 0 28px rgba(255, 215, 94, 0.9);
   box-shadow: inset 0 0 0 2px rgba(255, 215, 94, 0.6), 0 0 30px rgba(255, 215, 94, 0.3);
 }
+
+/* ---------------------------------------------------------------- v5 stats */
+
+.dmg-panel {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+.dmg-title {
+  font-family: var(--disp);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.dmg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.dmg-name {
+  width: 108px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.dmg-track {
+  flex: 1;
+  height: 7px;
+  background: rgba(122, 137, 173, 0.15);
+  overflow: hidden;
+}
+
+.dmg-fill {
+  height: 100%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.dmg-val {
+  width: 44px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.stats-columns {
+  width: 100%;
+  max-width: 420px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-bottom: 24px;
+}
+
+.stats-block {
+  padding: 12px 14px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+.stats-block-title {
+  font-family: var(--disp);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  margin-bottom: 8px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.9;
+}
+
+.stat-row b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}

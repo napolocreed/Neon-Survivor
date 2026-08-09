@@ -3,7 +3,7 @@
 
 import { Game } from '../game/game';
 import { EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
-import { COLORS, WEAPONS, SECTORS } from '../game/data';
+import { COLORS, WEAPONS, SECTORS, SHIP_PATHS } from '../game/data';
 import { bladeGeometry } from '../game/weapons';
 import { clamp, damp, TAU } from '../core/math';
 import { profile } from '../meta/save';
@@ -183,10 +183,12 @@ export class Renderer {
       shakeX = Math.sin(this.shakeT * 7.9) * s;
       shakeY = Math.cos(this.shakeT * 6.3) * s;
     }
+    // impact punch: brief zoom kick when the screen flashes hard
+    const punch = 1 + Math.min(0.02, g.screenFlash * 0.022);
 
     ctx.save();
     ctx.translate(w / 2, h / 2);
-    ctx.scale(this.zoom, this.zoom);
+    ctx.scale(this.zoom * punch, this.zoom * punch);
     ctx.translate(-w / 2, -h / 2);
 
     const camX = g.camX - w / 2 + shakeX;
@@ -222,10 +224,52 @@ export class Renderer {
 
   // ---------------------------------------------------------------- layers
 
+  private nebulas = new Map<number, HTMLCanvasElement>();
+
+  private nebula(sectorIdx: number): HTMLCanvasElement {
+    let n = this.nebulas.get(sectorIdx);
+    if (n) return n;
+    n = document.createElement('canvas');
+    n.width = n.height = 256;
+    const c = n.getContext('2d')!;
+    const hues = [
+      ['rgba(60,90,220,0.55)', 'rgba(140,80,255,0.35)'],
+      ['rgba(50,200,120,0.5)', 'rgba(120,255,170,0.3)'],
+      ['rgba(230,80,60,0.5)', 'rgba(255,150,70,0.32)'],
+    ][sectorIdx] ?? ['rgba(60,90,220,0.5)', 'rgba(140,80,255,0.3)'];
+    for (let i = 0; i < 5; i++) {
+      const x = 40 + Math.random() * 176;
+      const y = 40 + Math.random() * 176;
+      const r = 40 + Math.random() * 70;
+      const grad = c.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, hues[i % 2]);
+      grad.addColorStop(1, 'transparent');
+      c.fillStyle = grad;
+      c.fillRect(0, 0, 256, 256);
+    }
+    this.nebulas.set(sectorIdx, n);
+    return n;
+  }
+
   private drawBackground(g: Game, camX: number, camY: number, time: number, sector: (typeof SECTORS)[0]): void {
     const ctx = this.ctx;
     const w = this.w;
     const h = this.h;
+
+    // deep-space nebulas, slow parallax
+    const neb = this.nebula(g.sectorIdx);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.16;
+    const nebSize = Math.max(w, h) * 0.95;
+    for (let i = 0; i < 2; i++) {
+      const par = 0.05 + i * 0.04;
+      const span = nebSize * 1.9;
+      const nx = ((i * 700 - camX * par) % span + span) % span - (span - w) / 2;
+      const ny = ((i * 460 - camY * par) % span + span) % span - (span - h) / 2;
+      ctx.drawImage(neb, nx - nebSize / 2, ny - nebSize / 2, nebSize, nebSize);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
 
     for (const s of this.stars) {
       const sx = ((s.x - camX * s.layer) % 2000 + 2000) % 2000 - (2000 - w) / 2;
@@ -545,7 +589,11 @@ export class Renderer {
       ctx.globalCompositeOperation = 'source-over';
 
       if (e.elite) {
-        const affixColor = e.affix === Affix.Volatile ? '#ffe45e' : e.affix === Affix.Armored ? '#8fa3ff' : '#5eff9f';
+        const affixColor =
+          e.affix === Affix.Volatile ? '#ffe45e' :
+          e.affix === Affix.Armored ? '#8fa3ff' :
+          e.affix === Affix.Regen ? '#ff4dd8' :
+          e.affix === Affix.Phasing ? '#c46bff' : '#5eff9f';
         ctx.strokeStyle = affixColor;
         ctx.globalAlpha = 0.6 + 0.3 * Math.sin(time * 6);
         ctx.lineWidth = 2;
@@ -707,6 +755,17 @@ export class Renderer {
       }
 
       if (boss) {
+        // rotating outer shell segments
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 3;
+        for (let k = 0; k < 4; k++) {
+          const a = time * (e.kind === EnemyKind.BossOmega ? -0.9 : 0.7) + (k / 4) * TAU;
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 1.35, a, a + 0.9);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
         const pulse = 0.5 + 0.5 * Math.sin(time * 4);
         ctx.fillStyle = `rgba(255,56,96,${0.4 + pulse * 0.5})`;
         ctx.beginPath();
@@ -877,14 +936,16 @@ export class Renderer {
       ctx.translate(g.px, g.py);
       ctx.rotate(angle);
       const r = g.playerRadius;
+      const path = SHIP_PATHS[g.pilot.id] ?? SHIP_PATHS.vector;
       ctx.fillStyle = '#0a1220';
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.2;
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(r * 1.35, 0);
-      ctx.lineTo(-r * 0.9, r * 0.95);
-      ctx.lineTo(-r * 0.45, 0);
-      ctx.lineTo(-r * 0.9, -r * 0.95);
+      for (let k = 0; k < path.length; k++) {
+        if (k === 0) ctx.moveTo(path[k][0] * r, path[k][1] * r);
+        else ctx.lineTo(path[k][0] * r, path[k][1] * r);
+      }
       ctx.closePath();
       ctx.fill();
       ctx.stroke();

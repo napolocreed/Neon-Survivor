@@ -2,7 +2,7 @@
 
 import { Game, GRAZE_RADIUS } from './game';
 import { Enemy, EnemyKind, Affix, ParticleKind, Worm } from './types';
-import { WAVES, BOSS_TIMES, EVENTS, ENEMY_DEFS, BOSS_NAMES, WORM, hpScale, damageScale } from './data';
+import { WAVES, BOSS_SLOT_TIMES, BOSS_POOLS, EVENTS, ENEMY_DEFS, BOSS_NAMES, WORM, hpScale, damageScale } from './data';
 import { rand, randInt, TAU, pickWeighted, clamp } from '../core/math';
 import { audio } from '../audio/audio';
 import { profile } from '../meta/save';
@@ -176,6 +176,31 @@ export function updateEnemies(g: Game, dt: number): void {
       }
     }
 
+    // elite affix behaviors
+    if (e.elite) {
+      if (e.affix === Affix.Regen && e.hp < e.maxHp) {
+        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.02 * dt);
+      } else if (e.affix === Affix.Phasing) {
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0) {
+          e.shootTimer = rand(3.6, 5);
+          const ring1 = g.particles.spawnOrRecycle();
+          ring1.kind = ParticleKind.Ring; ring1.x = e.x; ring1.y = e.y; ring1.vx = 0; ring1.vy = 0;
+          ring1.life = 0.3; ring1.maxLife = 0.3; ring1.size = e.radius * 1.6; ring1.color = 10;
+          const jump = Math.min(190, dist - 80);
+          if (jump > 40) {
+            e.x += nx * jump;
+            e.y += ny * jump;
+            e.spawnTimer = 0.35; // brief rematerialize — dodge window
+            const ring2 = g.particles.spawnOrRecycle();
+            ring2.kind = ParticleKind.Ring; ring2.x = e.x; ring2.y = e.y; ring2.vx = 0; ring2.vy = 0;
+            ring2.life = 0.35; ring2.maxLife = 0.35; ring2.size = e.radius * 2; ring2.color = 10;
+            audio.shoot(1);
+          }
+        }
+      }
+    }
+
     e.x += (e.vx + e.kbx) * dt;
     e.y += (e.vy + e.kby) * dt;
     const kbDecay = 1 - Math.min(1, dt * 6);
@@ -302,9 +327,10 @@ export function updateWorms(g: Game, dt: number): void {
 }
 
 /** Damage a worm at a specific segment. Head takes double. Returns true if it hit. */
-export function hitWorm(g: Game, w: Worm, segIdx: number, damage: number): boolean {
+export function hitWorm(g: Game, w: Worm, segIdx: number, damage: number, src = 102): boolean {
   if (w.dying > 0) return false;
   const mult = segIdx === 0 ? 2 : 0.75; // head is the weak point, body is plated
+  g.damageBySource.set(src, (g.damageBySource.get(src) ?? 0) + damage * mult);
   w.hp -= damage * mult;
   w.flashTimer = 0.08;
   const n = g.dmgNumbers.spawnOrRecycle();
@@ -566,16 +592,17 @@ export function updateSpawner(g: Game, dt: number): void {
   const wave = WAVES[g.waveIdx];
 
   let bossAlive = findBoss(g);
-  if (!g.endless && g.bossIdx < BOSS_TIMES.length) {
-    const next = BOSS_TIMES[g.bossIdx];
-    if (g.bossWarnAt < 0 && t >= next.t - 3.5) {
+  if (!g.endless && g.bossIdx < BOSS_SLOT_TIMES.length) {
+    const nextT = BOSS_SLOT_TIMES[g.bossIdx];
+    const nextKind = g.bossPlan[g.bossIdx];
+    if (g.bossWarnAt < 0 && t >= nextT - 3.5) {
       g.bossWarnAt = t;
-      g.hooks.bossWarn(BOSS_NAMES[next.kind]);
+      g.hooks.bossWarn(BOSS_NAMES[nextKind]);
       audio.bossWarning();
       g.haptic(30);
     }
-    if (t >= next.t && !bossAlive) { // never stack two bosses
-      spawnBoss(g, next.kind, 1);
+    if (t >= nextT && !bossAlive) { // never stack two bosses
+      spawnBoss(g, nextKind, 1);
       g.bossIdx++;
       g.bossWarnAt = -1;
       bossAlive = findBoss(g);
@@ -583,8 +610,8 @@ export function updateSpawner(g: Game, dt: number): void {
   } else if (g.endless) {
     g.endlessBossTimer -= dt;
     if (g.endlessBossTimer <= 0) {
-      const kinds = [EnemyKind.BossWarden, EnemyKind.BossSeraph, EnemyKind.BossOmega];
-      const kind = kinds[g.endlessCycle % 3];
+      const kinds = BOSS_POOLS.flat();
+      const kind = kinds[g.endlessCycle % kinds.length];
       g.hooks.bossWarn(BOSS_NAMES[kind]);
       audio.bossWarning();
       spawnBoss(g, kind, Math.pow(1.6, g.endlessCycle + 1));
@@ -687,7 +714,7 @@ function spawnElite(g: Game): void {
   e.touchDamage = Math.round(e.touchDamage * 1.6 * damageScale(g.time));
   e.xp *= 8;
   e.kbResist = clamp(e.kbResist + 0.5, 0, 0.95);
-  e.affix = randInt(1, 3) as Affix;
+  e.affix = randInt(1, 5) as Affix;
   if (e.affix === Affix.Armored) e.hp = e.maxHp = e.maxHp * 1.3;
 }
 
