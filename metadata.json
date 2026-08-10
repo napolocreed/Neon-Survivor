@@ -1,6 +1,0 @@
-{
-  "name": "Neon Survivor",
-  "description": "An addictive, infinite roguelike auto-battler with chain reactions and upgrades.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
