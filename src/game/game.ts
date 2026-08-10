@@ -70,6 +70,9 @@ export const GRAZE_RADIUS = 46;
 const PLAYER_RADIUS = 13;
 const DASH_SPEED = 950;
 const DASH_TIME = 0.17;
+/** Below this HP fraction, any non-boss dies to a dash outright. Exported so
+ *  the renderer can telegraph exactly the same threshold it enforces. */
+export const EXECUTE_FRAC = 0.28;
 
 function makeEnemy(): Enemy {
   return {
@@ -158,6 +161,7 @@ export class Game {
   private hintDashShown = false;
   private hintChainShown = false;
   private hintGrazeShown = false;
+  private hintExecShown = false;
 
   // run progress
   time = 0;
@@ -619,13 +623,24 @@ export class Game {
       if (dist2(this.px, this.py, e.x, e.y) < (30 + e.radius) ** 2) {
         e.dashHitCd = 0.5;
         const wasMarked = e.markTimer > 0;
+        // EXECUTE: weapons wound, the dash finishes. Any non-boss below the
+        // threshold dies to a dash outright, however tough. This is the
+        // positive half of the kill-gated chain economy: a healthy Tank is a
+        // guaranteed whiff, a wounded one is a conversion target — so the
+        // arsenal becomes setup tools and target selection becomes the game.
+        const execute = e.kind < EnemyKind.BossWarden && e.hp <= e.maxHp * EXECUTE_FRAC;
         this.dashSigilBoost = wasMarked;
-        const killed = this.dealDamage(e, dmg, { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300, src: 100 });
+        const killed = this.dealDamage(e, execute ? Math.max(dmg, e.hp + 1) : dmg,
+          { knockX: this.dashDirX * 300, knockY: this.dashDirY * 300, src: 100 });
         this.dashSigilBoost = false;
         if (killed) {
           this.onDashKill();
           // killEnemy already cleared the brand — use the pre-kill snapshot
           if (wasMarked) this.chainWindow += 0.4;
+          if (execute && !this.hintExecShown && profile.records.runs < 6) {
+            this.hintExecShown = true;
+            this.hooks.hint('WOUNDED FOES FLICKER — YOUR DASH EXECUTES THEM ⚡');
+          }
         }
       }
     }

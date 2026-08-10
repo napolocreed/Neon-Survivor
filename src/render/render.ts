@@ -1,7 +1,7 @@
 // Canvas renderer: pre-baked glow sprites + additive blending, sector
 // palettes, parallax starfield, arena walls, worms, zones, screen shake.
 
-import { Game } from '../game/game';
+import { Game, EXECUTE_FRAC } from '../game/game';
 import { Enemy, EnemyKind, ParticleKind, PickupKind, WeaponId, Affix, ZoneKind } from '../game/types';
 import { COLORS, WEAPONS, SECTORS, SHIP_PATHS } from '../game/data';
 import { bladeGeometry, prismGeometry } from '../game/weapons';
@@ -719,6 +719,13 @@ export class Renderer {
       if (e.kind === EnemyKind.Dasher && e.aiState === 1) {
         ctx.strokeStyle = '#ffffff';
         ctx.globalAlpha = 0.5 + 0.5 * Math.sin(time * 30);
+      }
+
+      // Execute telegraph: below the dash-execute threshold the rim flickers
+      // white — same constant the game enforces, so the tell never lies.
+      if (!boss && !flash && e.frozenTimer <= 0 && e.hp <= e.maxHp * EXECUTE_FRAC) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(time * 11 + e.seed * 5);
       }
 
       ctx.beginPath();

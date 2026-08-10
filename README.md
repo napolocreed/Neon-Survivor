@@ -23,6 +23,11 @@ forever. Every link heals you, scales dash damage and floods Overdrive; the
 window tightens past ×10 and i-frames thin as the chain deepens. Aggression is
 the optimal strategy — *precise* aggression.
 
+**Weapons wound. You finish.** Any non-boss under 28% HP flickers white and
+dies to a dash outright, however tough. Your guns exist to *make* conversion
+targets — a healthy Tank is a guaranteed whiff, a wounded one is a link in
+your chain. Late game is target selection at speed.
+
 Around it:
 
 - **Graze** — skim enemies and bullets without being hit to charge **OVERDRIVE**:
