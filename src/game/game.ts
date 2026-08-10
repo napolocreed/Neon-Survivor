@@ -523,16 +523,23 @@ export class Game {
 
   private tryDash(): void {
     if (this.dashTimer > 0) return;
-    // an active chain window makes the dash FREE — you are the bullet
-    const freeChain = this.chainWindow > 0 && this.chain > 0;
+    // KILLS FUEL DASHES. A chained dash stays free only while the previous
+    // dash converted (killed something) — dashKilledSomething holds exactly
+    // that at this point, since it resets when a dash starts and sets on kill.
+    // Without this gate, mashing the screen was the dominant strategy: any
+    // tap during the window was free, the horde guaranteed a kill somewhere
+    // along the line, and the window re-armed forever (real players chained
+    // 300+ by hammering blind). Now a whiff spends a real charge, so blind
+    // mashing runs dry in two or three taps while aimed play flows on.
+    const freeChain = this.chainWindow > 0 && this.chain > 0 && this.dashKilledSomething;
     if (!freeChain) {
       if (this.dashCharges <= 0) return;
       if (this.dashCharges === this.stats.dashCharges) this.dashRecharge = this.stats.dashCooldown;
       this.dashCharges--;
     }
     this.dashTimer = DASH_TIME;
-    // chained dashes get shorter i-frames — long chains demand precision
-    this.invuln = Math.max(this.invuln, freeChain ? 0.22 : 0.34);
+    // chained i-frames thin as the chain deepens — depth demands precision
+    this.invuln = Math.max(this.invuln, freeChain ? Math.max(0.18, 0.22 - this.chain * 0.002) : 0.34);
     let dx = 0;
     let dy = 0;
     // AIMED DASH: dash toward the tapped point (screen → world)
@@ -638,11 +645,10 @@ export class Game {
     // the window tightens as the chain grows — deep chains demand mastery
     this.chainWindow = Math.max(0.72, 1.35 - Math.max(0, this.chain - 10) * 0.035)
       + (this.hasCurse('momentum') ? 0.4 : 0);
-    // Aggression heals, and it heals *more* the deeper the chain runs. A flat
-    // 1 HP per link could never pay for the contact damage of diving in, which
-    // made the game's own thesis a losing strategy. Deep chains are now a real
-    // sustain engine — that is the risk/reward the whole design rests on.
-    this.hp = Math.min(this.stats.maxHp, this.hp + Math.min(8, 1 + Math.floor(this.chain / 4)));
+    // Aggression heals, scaling with depth — but capped low enough that a
+    // deep chain sustains a dive without making it immortal. (Cap 8 plus
+    // near-permanent dash i-frames made mash-chaining an infinite engine.)
+    this.hp = Math.min(this.stats.maxHp, this.hp + Math.min(5, 1 + Math.floor(this.chain / 8)));
     this.chargeOverdrive(2 + this.chain * 0.25);
     this.score += this.chain * 25;
     this.dashRecharge = Math.max(0.2, this.dashRecharge - 0.7);
@@ -660,6 +666,16 @@ export class Game {
       const ring = this.particles.spawnOrRecycle();
       ring.kind = ParticleKind.Ring; ring.x = this.px; ring.y = this.py; ring.vx = 0; ring.vy = 0;
       ring.life = 0.5; ring.maxLife = 0.5; ring.size = 90 + this.chain * 4; ring.color = 3;
+    }
+    // deep-chain tiers: the run announces the feat while it happens
+    if (this.chain === 35 || this.chain === 75 || this.chain === 150) {
+      this.screenFlash = Math.max(this.screenFlash, 0.55);
+      this.addTrauma(0.42);
+      this.hitStop = Math.max(this.hitStop, 0.09);
+      this.hooks.hint(this.chain === 35 ? '⛓ CHAIN 35 — RAMPAGE' : this.chain === 75 ? '⛓ CHAIN 75 — THE GRID FEARS YOU' : '⛓ CHAIN 150 — TRANSCENDENT');
+      const ring = this.particles.spawnOrRecycle();
+      ring.kind = ParticleKind.Ring; ring.x = this.px; ring.y = this.py; ring.vx = 0; ring.vy = 0;
+      ring.life = 0.7; ring.maxLife = 0.7; ring.size = 200 + this.chain; ring.color = 3;
     }
   }
 

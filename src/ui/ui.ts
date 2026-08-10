@@ -386,7 +386,7 @@ export class UI {
         <div class="brief-list">
           ${card('⇢', 'DRAG TO MOVE', 'Touch anywhere and drag — the stick follows your thumb. Guns aim and fire on their own.')}
           ${card('⊙', 'TAP TO DASH', 'A quick tap dashes <b>toward that point</b>. You are invulnerable mid-dash and you damage everything you phase through.')}
-          ${card('⚡', 'DASH KILLS CHAIN', 'Kill with a dash and the next dash is <b>free</b> for a moment. Chain them: each link heals you, hits harder and floods Overdrive. This is the game.', '#4df3ff')}
+          ${card('⚡', 'DASH KILLS CHAIN', 'Kill with a dash and the next dash is <b>free</b> — keep killing and it stays free. A dash that kills <b>nothing</b> spends a real charge. Each link heals you, hits harder, floods Overdrive. This is the game.', '#4df3ff')}
           ${card('◈', 'GRAZE FOR OVERDRIVE', 'Skim past enemies and bullets without being hit to charge OVERDRIVE — seven golden seconds of speed, damage and magnetism.', '#ffd75e')}
           ${card('☄', 'ELEMENTS REACT', 'Two different statuses on one enemy trigger chemistry. Burn + Chill detonates. Chill + Shock spreads the freeze. Shock + Acid arcs. Burn + Acid ignites the pool.', '#9fff45')}
           ${card('★', 'EVOLVE YOUR ARSENAL', 'Max a weapon and own its paired passive, then take the legendary card. Every weapon has one.', '#ffd75e')}
@@ -836,7 +836,12 @@ export class UI {
         </div>
       </div>
     `);
+    // Mash guard: players hammering the screen to dash-chain were picking
+    // cards blind the instant the draft opened. Selections only arm after a
+    // beat, so the first stray tap lands on nothing and the draft gets read.
+    const openedAt = performance.now();
     this.click(root, '.card', el => {
+      if (performance.now() - openedAt < 350) return;
       g.chooseOffer(Number(el.dataset.i));
       audio.ui();
       this.hideScreens();

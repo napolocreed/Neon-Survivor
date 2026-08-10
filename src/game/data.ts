@@ -368,8 +368,8 @@ export const WAVES: WavePhase[] = [
   { t: 25, interval: 0.85, batch: 4, kinds: [EnemyKind.Chaser, EnemyKind.Swarm], weights: [3, 4] },
   { t: 55, interval: 0.75, batch: 5, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver], weights: [3, 5, 2] },
   { t: 90, interval: 0.7, batch: 6, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Dasher], weights: [3, 5, 2, 1.2] },
-  { t: 125, interval: 0.62, batch: 7, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper], weights: [3, 5, 2, 0.7, 1.2, 1.0] },
-  { t: 165, interval: 0.58, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis], weights: [3, 5, 2, 0.7, 1.2, 1.0, 0.6] },
+  { t: 125, interval: 0.62, batch: 7, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Spitter], weights: [3, 5, 2, 0.7, 1.2, 1.0, 0.5] },
+  { t: 165, interval: 0.58, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Sapper, EnemyKind.Aegis, EnemyKind.Spitter], weights: [3, 5, 2, 0.7, 1.2, 1.0, 0.6, 0.8] },
   { t: 210, interval: 0.55, batch: 9, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis], weights: [3, 5, 2, 0.7, 1.2, 0.9, 0.5] },
   { t: 250, interval: 0.6, batch: 8, kinds: [EnemyKind.Chaser, EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Aegis, EnemyKind.Mender], weights: [3, 5, 2, 0.7, 1.2, 0.9, 0.5, 0.35] },
   { t: 290, interval: 0.55, batch: 8, kinds: [EnemyKind.Swarm, EnemyKind.Weaver, EnemyKind.Tank, EnemyKind.Dasher, EnemyKind.Spitter, EnemyKind.Splitter, EnemyKind.Mender], weights: [5, 2.5, 0.8, 1.3, 1.0, 0.7, 0.35] },
@@ -411,7 +411,7 @@ export function hpScale(t: number): number {
 }
 
 export function damageScale(t: number): number {
-  return 1 + (t / 60) * 0.13;
+  return 1 + (t / 60) * 0.16;
 }
 
 // ------------------------------------------------------------------ ship silhouettes
@@ -583,11 +583,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'legion', name: 'Legion Slayer', desc: 'Destroy 25,000 enemies (total)', reward: 500, check: s => s.totalKills >= 25000 },
   { id: 'surv5', name: 'Still Alive', desc: 'Survive 5 minutes', reward: 100, check: s => s.bestTime >= 300 },
   { id: 'clear', name: 'Sector Cleared', desc: 'Destroy OMEGA PRIME', reward: 500, check: s => s.victories >= 1 },
-  { id: 'combo50', name: 'Flow State', desc: 'Reach a 50× combo', reward: 100, check: s => s.bestCombo >= 50 },
-  { id: 'combo150', name: 'Untouchable Rhythm', desc: 'Reach a 150× combo', reward: 250, check: s => s.bestCombo >= 150 },
-  { id: 'graze', name: 'Death Dancer', desc: 'Graze 150 times in one run', reward: 150, check: s => s.runGraze >= 150 },
+  { id: 'combo50', name: 'Flow State', desc: 'Reach a 100× combo', reward: 100, check: s => s.bestCombo >= 100 },
+  { id: 'combo150', name: 'Untouchable Rhythm', desc: 'Reach a 250× combo', reward: 250, check: s => s.bestCombo >= 250 },
+  { id: 'graze', name: 'Death Dancer', desc: 'Graze 250 times in one run', reward: 150, check: s => s.runGraze >= 250 },
   { id: 'od3', name: 'Golden Hour', desc: 'Trigger Overdrive 3 times in one run', reward: 150, check: s => s.runOverdrives >= 3 },
-  { id: 'dashk', name: 'Phase Reaper', desc: '30 dash kills in one run', reward: 150, check: s => s.runDashKills >= 30 },
+  { id: 'dashk', name: 'Phase Reaper', desc: '75 dash kills in one run', reward: 150, check: s => s.runDashKills >= 75 },
   { id: 'evo1', name: 'Metamorphosis', desc: 'Evolve a weapon', reward: 100, check: s => s.evolutionsSeen >= 1 },
   { id: 'evo6', name: 'Full Arsenal', desc: 'Discover 6 evolutions (all-time)', reward: 400, check: s => s.evolutionsSeen >= 6 },
   { id: 'warden', name: 'Warden Down', desc: 'Destroy THE WARDEN', reward: 100, check: s => s.bossKills[0] >= 1 },
@@ -597,8 +597,8 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'deal', name: 'Deal With It', desc: 'Accept a Cursed Tech offer', reward: 75, check: s => s.cursesTaken >= 1 },
   { id: 'endless15', name: 'Beyond The Wall', desc: 'Reach 15:00 in Endless', reward: 300, check: s => s.endlessTime >= 900 },
   { id: 'reap100k', name: 'Grid Reaper', desc: 'Destroy 100,000 enemies (total)', reward: 1000, check: s => s.totalKills >= 100000 },
-  { id: 'combo300', name: 'Singular Flow', desc: 'Reach a 300× combo', reward: 400, check: s => s.bestCombo >= 300 },
-  { id: 'chain25', name: 'Beyond The Bullet', desc: 'Reach a 25× dash chain', reward: 500, check: s => s.bestChain >= 25 },
+  { id: 'combo300', name: 'Singular Flow', desc: 'Reach a 500× combo', reward: 400, check: s => s.bestCombo >= 500 },
+  { id: 'chain25', name: 'Beyond The Bullet', desc: 'Reach a 75× dash chain', reward: 500, check: s => s.bestChain >= 75 },
   { id: 'serpent10', name: 'Serpent Culler', desc: 'Destroy 10 Void Serpents (total)', reward: 300, check: s => s.wormKills >= 10 },
   { id: 'trinity', name: 'Triple Crown', desc: 'Destroy each boss slot 3 times', reward: 400, check: s => s.bossKills[0] >= 3 && s.bossKills[1] >= 3 && s.bossKills[2] >= 3 },
   { id: 'heretic', name: 'Grid Heretic', desc: 'Survive 10 Defiance Surges (total)', reward: 350, check: s => s.surgesCleared >= 10 },
@@ -606,8 +606,8 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'alch500', name: 'Grand Alchemist', desc: 'Trigger 500 reactions (total)', reward: 300, check: s => s.totalReactions >= 500 },
   { id: 'longdark', name: 'The Long Dark', desc: 'Reach 30:00 in Endless', reward: 600, check: s => s.endlessTime >= 1800 },
   { id: 'pentakill', name: 'Serial Survivor', desc: 'Win 5 runs', reward: 600, check: s => s.victories >= 5 },
-  { id: 'chain8', name: 'You Are The Bullet', desc: 'Reach an 8× dash chain', reward: 150, check: s => s.bestChain >= 8 },
-  { id: 'chain15', name: 'Human Railgun', desc: 'Reach a 15× dash chain', reward: 300, check: s => s.bestChain >= 15 },
+  { id: 'chain8', name: 'You Are The Bullet', desc: 'Reach a 10× dash chain', reward: 150, check: s => s.bestChain >= 10 },
+  { id: 'chain15', name: 'Human Railgun', desc: 'Reach a 30× dash chain', reward: 300, check: s => s.bestChain >= 30 },
   { id: 'chemist', name: 'Grid Chemist', desc: 'Discover all 4 elemental reactions', reward: 300, check: s => s.reactionsSeen >= 4 },
   { id: 'surge', name: 'Defiant', desc: 'Survive a Defiance Surge', reward: 150, check: s => s.surgesCleared >= 1 },
 ];

@@ -13,12 +13,15 @@ const idx = (w: WeaponState): number => (w.evolved ? 8 : w.level - 1);
 
 // ------------------------------------------------------------ level tables
 
+// The starter every run carries — its early strength IS the early difficulty,
+// so it opens modest (player feedback: it cruised through minute 1-3) and
+// earns its curve back through levels.
 const PULSE = {
   count: [3, 3, 3, 4, 4, 4, 4, 4, 6],
   dmg: [1, 1.15, 1.3, 1.3, 1.4, 1.4, 1.55, 1.55, 2.1],
-  cd: [0.68, 0.68, 0.68, 0.6, 0.6, 0.6, 0.58, 0.55, 0.48],
+  cd: [0.76, 0.74, 0.7, 0.62, 0.6, 0.6, 0.58, 0.55, 0.48],
   pierce: [0, 0, 1, 1, 1, 1, 2, 2, 3],
-  base: 15,
+  base: 13,
 };
 const TESLA = {
   chains: [2, 3, 3, 4, 5, 5, 5, 6, 9],
